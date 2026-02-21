@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id           Int     @id @default(autoincrement()) @map("account_id")
+  email        String  @db.VarChar(255)
+  passwordHash String  @map("password") @db.VarChar(255)
+  panels       Panel[]
+
+  @@unique([email])
+  @@map("account")
+}
+
+model Panel {
+  id             Int            @id @default(autoincrement()) @map("panel_id")
+  accountId      Int            @map("account_id")
+  name           String         @db.VarChar(255)
+  description    String?        @db.VarChar(255)
+  instructions   String?
+  lastPromptedAt DateTime?      @map("last_prompted_at")
+  account        Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  experts        Expert[]
+  conversations  Conversation[]
+
+  @@index([accountId])
+  @@index([lastPromptedAt])
+  @@map("panel")
+}
+
+model Expert {
+  id             Int        @id @default(autoincrement()) @map("expert_id")
+  panelId        Int        @map("panel_id")
+  name           String     @db.VarChar(255)
+  specialization String     @db.VarChar(255)
+  soul           String
+  position       Int
+  panel          Panel      @relation(fields: [panelId], references: [id], onDelete: Cascade)
+  responses      Response[]
+
+  @@index([panelId])
+  @@unique([panelId, position])
+  @@map("expert")
+}
+
+model Conversation {
+  id             Int       @id @default(autoincrement()) @map("conversation_id")
+  panelId        Int       @map("panel_id")
+  name           String    @db.VarChar(255)
+  lastPromptedAt DateTime? @map("last_prompted_at")
+  panel          Panel     @relation(fields: [panelId], references: [id], onDelete: Cascade)
+  prompts        Prompt[]
+
+  @@index([panelId])
+  @@index([lastPromptedAt])
+  @@map("conversation")
+}
+
+model Prompt {
+  id             Int          @id @default(autoincrement()) @map("prompt_id")
+  conversationId Int          @map("conversation_id")
+  sequence       Int
+  content        String       @db.Text
+  createdAt      DateTime     @default(now()) @map("created_at")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  responses      Response[]
+
+  @@index([conversationId])
+  @@index([createdAt])
+  @@unique([conversationId, sequence])
+  @@map("prompt")
+}
+
+model Response {
+  id        Int      @id @default(autoincrement()) @map("response_id")
+  promptId  Int      @map("prompt_id")
+  expertId  Int      @map("expert_id")
+  sequence  Int
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  prompt    Prompt   @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  expert    Expert   @relation(fields: [expertId], references: [id], onDelete: Cascade)
+
+  @@index([promptId])
+  @@index([expertId])
+  @@index([createdAt])
+  @@unique([promptId, sequence])
+  @@map("response")
+}

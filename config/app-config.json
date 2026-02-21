@@ -1,0 +1,15 @@
+{
+  "llm": {
+    "pinnedModel": "gpt-5-nano-2025-08-07",
+    "defaultMode": "simulated",
+    "defaultEnabled": true,
+    "simulated": {
+      "failureRate": 0.02,
+      "minLatencyMs": 300,
+      "maxLatencyMs": 1800
+    }
+  },
+  "auth": {
+    "accessTokenTtl": "15m"
+  }
+}
