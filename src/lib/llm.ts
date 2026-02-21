@@ -1,3 +1,8 @@
+/**
+ * Purpose: Unified LLM facade supporting simulated and live providers.
+ * Inputs: `GenerateInput` prompt/model override and runtime config.
+ * Outputs: API-shaped `LlmResponse` with content, usage, request id, and latency.
+ */
 import OpenAI from "openai";
 import { appConfig, ensurePinnedModel } from "../config/appConfig";
 

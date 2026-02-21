@@ -1,3 +1,8 @@
+/**
+ * Purpose: Renders the current MVP home page.
+ * Inputs: None.
+ * Outputs: Static page content indicating scaffold status.
+ */
 export default function HomePage() {
   return (
     <main>

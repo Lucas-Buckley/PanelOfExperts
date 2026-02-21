@@ -1,3 +1,8 @@
+/**
+ * Purpose: Encapsulates panel/conversation recency ordering updates and queries.
+ * Inputs: Conversation/panel/account identifiers and optional transaction/timestamp.
+ * Outputs: Updated recency fields or ordered query result lists.
+ */
 import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { prisma } from "../../lib/db";

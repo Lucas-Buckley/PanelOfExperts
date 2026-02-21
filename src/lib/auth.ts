@@ -1,3 +1,9 @@
+/**
+ * Purpose: Provides auth-related utility functions for email normalization,
+ * password hashing/verification, and JWT signing.
+ * Inputs: Raw email/password/token payload values.
+ * Outputs: Normalized emails, hashed passwords, boolean verify result, signed JWT.
+ */
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { appConfig } from "../config/appConfig";

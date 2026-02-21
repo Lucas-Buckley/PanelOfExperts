@@ -1,3 +1,8 @@
+/**
+ * Purpose: Exposes a shared Prisma client singleton.
+ * Inputs: None.
+ * Outputs: `prisma` client instance for database queries.
+ */
 import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {

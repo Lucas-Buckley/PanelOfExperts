@@ -1,3 +1,9 @@
+/**
+ * Purpose: Loads and validates runtime configuration from `config/app-config.json`
+ * and environment overrides.
+ * Inputs: Process environment variables + JSON config file on disk.
+ * Outputs: Typed `appConfig` values and `ensurePinnedModel()` validation helper.
+ */
 import fs from "node:fs";
 import path from "node:path";
 
