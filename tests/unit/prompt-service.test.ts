@@ -28,7 +28,11 @@ import { createPromptForConversation } from "../../src/server/services/promptSer
 
 type TxClient = {
   conversation: { findFirst: ReturnType<typeof vi.fn> };
-  prompt: { findFirst: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> };
+  prompt: {
+    findFirst: ReturnType<typeof vi.fn>;
+    findMany: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+  };
   expert: { findMany: ReturnType<typeof vi.fn> };
   response: { create: ReturnType<typeof vi.fn> };
   panel: { update: ReturnType<typeof vi.fn> };
@@ -42,7 +46,7 @@ function createTxClient(): TxClient {
    */
   return {
     conversation: { findFirst: vi.fn() },
-    prompt: { findFirst: vi.fn(), create: vi.fn() },
+    prompt: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
     expert: { findMany: vi.fn() },
     response: { create: vi.fn() },
     panel: { update: vi.fn() }
@@ -59,6 +63,7 @@ describe("prompt service", () => {
   it("rejects invalid conversation ownership", async () => {
     const tx = createTxClient();
     tx.conversation.findFirst.mockResolvedValue(null);
+    tx.prompt.findMany.mockResolvedValue([]);
     prismaMock.$transaction.mockImplementation(async (cb: (txArg: TxClient) => unknown) => cb(tx));
 
     await expect(
@@ -79,11 +84,16 @@ describe("prompt service", () => {
 
     tx.conversation.findFirst.mockResolvedValue({
       id: 88,
-      panelId: 42
+      panelId: 42,
+      panel: {
+        name: "Launch Council",
+        instructions: "Use practical, testable advice."
+      }
     });
     tx.prompt.findFirst.mockResolvedValue({
       sequence: 4
     });
+    tx.prompt.findMany.mockResolvedValue([]);
     tx.prompt.create.mockImplementation(async (args: { data: { sequence: number } }) => {
       callOrder.push("prompt.create");
       return {
@@ -111,10 +121,10 @@ describe("prompt service", () => {
     });
 
     panelRunnerMock.runPanel.mockReturnValue({
-      mode: "placeholder",
+      mode: "executed",
       responses: [
-        { expertId: 2, sequence: 1, content: "resp-2" },
-        { expertId: 5, sequence: 2, content: "resp-5" }
+        { expertId: 2, expertName: "A", sequence: 1, content: "resp-2" },
+        { expertId: 5, expertName: "B", sequence: 2, content: "resp-5" }
       ]
     });
 
@@ -127,6 +137,11 @@ describe("prompt service", () => {
     expect(callOrder[0]).toBe("prompt.create");
     expect(callOrder[1]).toBe("response.create.2");
     expect(callOrder[2]).toBe("response.create.5");
+    expect(panelRunnerMock.runPanel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        panelName: "Launch Council"
+      })
+    );
 
     expect(tx.response.create).toHaveBeenNthCalledWith(
       1,
@@ -149,5 +164,80 @@ describe("prompt service", () => {
 
     expect(result.prompt.id).toBe(501);
     expect(result.responses).toHaveLength(2);
+  });
+
+  it("passes recency history under budget with first-prompt anchor when possible", async () => {
+    const tx = createTxClient();
+
+    tx.conversation.findFirst.mockResolvedValue({
+      id: 88,
+      panelId: 42,
+      panel: {
+        name: "Launch Council",
+        instructions: "Use practical, testable advice."
+      }
+    });
+    tx.prompt.findFirst.mockResolvedValue({
+      sequence: 10
+    });
+    tx.prompt.create.mockResolvedValue({
+      id: 777,
+      conversationId: 88,
+      sequence: 11,
+      content: "new prompt",
+      createdAt: new Date("2026-02-22T00:00:00.000Z")
+    });
+    tx.expert.findMany.mockResolvedValue([
+      { id: 2, name: "A", specialization: "X", soul: "Y", position: 1 }
+    ]);
+    tx.prompt.findMany.mockResolvedValue([
+      {
+        sequence: 10,
+        content: "x".repeat(9000),
+        responses: []
+      },
+      {
+        sequence: 9,
+        content: "y".repeat(9000),
+        responses: []
+      },
+      {
+        sequence: 1,
+        content: "z".repeat(100),
+        responses: []
+      }
+    ]);
+    tx.response.create.mockResolvedValue({
+      id: 901,
+      promptId: 777,
+      expertId: 2,
+      sequence: 1,
+      content: "resp",
+      createdAt: new Date("2026-02-22T00:00:01.000Z")
+    });
+    panelRunnerMock.runPanel.mockReturnValue({
+      mode: "executed",
+      responses: [{ expertId: 2, expertName: "A", sequence: 1, content: "resp" }]
+    });
+
+    prismaMock.$transaction.mockImplementation(async (cb: (txArg: TxClient) => unknown) => cb(tx));
+
+    await createPromptForConversation(7, 88, {
+      content: "new prompt"
+    });
+
+    expect(panelRunnerMock.runPanel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        history: expect.arrayContaining([
+          expect.objectContaining({ sequence: 1 }),
+          expect.objectContaining({ sequence: 10 })
+        ])
+      })
+    );
+
+    const runnerArgs = panelRunnerMock.runPanel.mock.calls[0][0] as {
+      history: Array<{ sequence: number }>;
+    };
+    expect(runnerArgs.history.map((item) => item.sequence)).toEqual([1, 10]);
   });
 });

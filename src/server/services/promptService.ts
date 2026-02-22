@@ -5,9 +5,10 @@
  */
 import { z } from "zod";
 
+import { appConfig } from "../../config/appConfig";
 import { prisma } from "../../lib/db";
 import { markPromptActivity } from "../repositories/activityOrdering";
-import { runPanel } from "./panelRunner";
+import { runPanel, type PanelRunnerHistoryPromptInput } from "./panelRunner";
 
 const createPromptSchema = z.object({
   content: z.string().trim().min(1)
@@ -62,6 +63,102 @@ function parseCreatePromptInput(input: unknown): CreatePromptInput {
   return parsed.data;
 }
 
+function mapPromptHistoryForRunner(
+  rows: Array<{
+    sequence: number;
+    content: string;
+    responses: Array<{
+      expertId: number;
+      sequence: number;
+      content: string;
+      expert: {
+        name: string;
+      };
+    }>;
+  }>
+): PanelRunnerHistoryPromptInput[] {
+  /**
+   * Purpose: Maps persisted prompt/response history into panel-runner context shape.
+   * Inputs: Prompt rows with nested ordered responses and expert names.
+   * Outputs: Chronological history records for prompt composition.
+   */
+  const chronologicalRows = [...rows].sort(
+    (left, right) => left.sequence - right.sequence
+  );
+
+  return chronologicalRows.map((historyPrompt) => ({
+    sequence: historyPrompt.sequence,
+    content: historyPrompt.content,
+    responses: historyPrompt.responses.map((historyResponse) => ({
+      expertId: historyResponse.expertId,
+      expertName: historyResponse.expert.name,
+      sequence: historyResponse.sequence,
+      content: historyResponse.content
+    }))
+  }));
+}
+
+function estimateHistoryPromptSize(prompt: PanelRunnerHistoryPromptInput): number {
+  /**
+   * Purpose: Estimates prompt-history cost using lightweight character-size proxy.
+   * Inputs: One mapped prompt history record.
+   * Outputs: Approximate character footprint for budgeting context window selection.
+   */
+  const responseSize = prompt.responses.reduce(
+    (total, response) =>
+      total +
+      response.content.length +
+      response.expertName.length +
+      response.sequence.toString().length,
+    0
+  );
+
+  return prompt.content.length + prompt.sequence.toString().length + responseSize;
+}
+
+function applyHistoryBudget(
+  history: PanelRunnerHistoryPromptInput[],
+  charBudget: number
+): PanelRunnerHistoryPromptInput[] {
+  /**
+   * Purpose: Selects recent conversation history within a character budget and optional first-turn anchor.
+   * Inputs: Chronological history and max character budget.
+   * Outputs: Budget-constrained chronological history subset for prompt composition.
+   */
+  if (history.length === 0) {
+    return [];
+  }
+
+  let used = 0;
+  const selectedRecentReverse: PanelRunnerHistoryPromptInput[] = [];
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const item = history[index];
+    const size = estimateHistoryPromptSize(item);
+    if (selectedRecentReverse.length > 0 && used + size > charBudget) {
+      break;
+    }
+
+    selectedRecentReverse.push(item);
+    used += size;
+  }
+
+  const selectedRecent = selectedRecentReverse.reverse();
+  const firstPrompt = history[0];
+  const includesFirstPrompt = selectedRecent.some(
+    (item) => item.sequence === firstPrompt.sequence
+  );
+  if (includesFirstPrompt) {
+    return selectedRecent;
+  }
+
+  const firstPromptSize = estimateHistoryPromptSize(firstPrompt);
+  if (used + firstPromptSize <= charBudget) {
+    return [firstPrompt, ...selectedRecent];
+  }
+
+  return selectedRecent;
+}
+
 export async function createPromptForConversation(
   accountId: number,
   conversationId: number,
@@ -84,7 +181,13 @@ export async function createPromptForConversation(
       },
       select: {
         id: true,
-        panelId: true
+        panelId: true,
+        panel: {
+          select: {
+            name: true,
+            instructions: true
+          }
+        }
       }
     });
 
@@ -126,10 +229,43 @@ export async function createPromptForConversation(
       }
     });
 
-    const panelResult = runPanel({
+    const historyRows = await tx.prompt.findMany({
+      where: {
+        conversationId,
+        sequence: {
+          lt: nextPromptSequence
+        }
+      },
+      orderBy: [{ sequence: "desc" }, { id: "desc" }],
+      take: appConfig.llmHistoryPromptFetchLimit,
+      select: {
+        sequence: true,
+        content: true,
+        responses: {
+          orderBy: [{ sequence: "asc" }, { id: "asc" }],
+          select: {
+            expertId: true,
+            sequence: true,
+            content: true,
+            expert: {
+              select: {
+                name: true
+              }
+            }
+          }
+        }
+      }
+    });
+    const mappedHistory = mapPromptHistoryForRunner(historyRows);
+    const history = applyHistoryBudget(mappedHistory, appConfig.llmHistoryCharBudget);
+
+    const panelResult = await runPanel({
       conversationId,
       panelId: conversation.panelId,
+      panelName: conversation.panel.name,
+      panelInstructions: conversation.panel.instructions,
       promptContent: prompt.content,
+      history,
       experts
     });
 

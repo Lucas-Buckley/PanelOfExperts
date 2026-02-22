@@ -21,6 +21,12 @@ type FileConfig = {
       minLatencyMs: number;
       maxLatencyMs: number;
     };
+    orchestration?: {
+      historyPromptFetchLimit?: number;
+      historyCharBudget?: number;
+      retryAttemptsPerExpert?: number;
+      retryBackoffMs?: number;
+    };
   };
   auth: {
     accessTokenTtl: string;
@@ -105,6 +111,12 @@ function loadFileConfig(): FileConfig {
 }
 
 const fileConfig = loadFileConfig();
+const defaultOrchestrationConfig = {
+  historyPromptFetchLimit: 30,
+  historyCharBudget: 12000,
+  retryAttemptsPerExpert: 1,
+  retryBackoffMs: 200
+};
 
 function resolveModelFromEnv(modelOverride: string | undefined): string {
   /**
@@ -141,6 +153,46 @@ export const appConfig = {
   llmSimMaxLatencyMs: parseNumber(
     process.env.LLM_SIM_MAX_LATENCY_MS,
     fileConfig.llm.simulated.maxLatencyMs
+  ),
+  llmHistoryPromptFetchLimit: Math.max(
+    1,
+    Math.floor(
+      parseNumber(
+        process.env.LLM_HISTORY_PROMPT_FETCH_LIMIT,
+        fileConfig.llm.orchestration?.historyPromptFetchLimit ??
+          defaultOrchestrationConfig.historyPromptFetchLimit
+      )
+    )
+  ),
+  llmHistoryCharBudget: Math.max(
+    500,
+    Math.floor(
+      parseNumber(
+        process.env.LLM_HISTORY_CHAR_BUDGET,
+        fileConfig.llm.orchestration?.historyCharBudget ??
+          defaultOrchestrationConfig.historyCharBudget
+      )
+    )
+  ),
+  llmRunnerRetryAttempts: Math.max(
+    0,
+    Math.floor(
+      parseNumber(
+        process.env.LLM_RUNNER_RETRY_ATTEMPTS,
+        fileConfig.llm.orchestration?.retryAttemptsPerExpert ??
+          defaultOrchestrationConfig.retryAttemptsPerExpert
+      )
+    )
+  ),
+  llmRunnerRetryBackoffMs: Math.max(
+    0,
+    Math.floor(
+      parseNumber(
+        process.env.LLM_RUNNER_RETRY_BACKOFF_MS,
+        fileConfig.llm.orchestration?.retryBackoffMs ??
+          defaultOrchestrationConfig.retryBackoffMs
+      )
+    )
   )
 } as const;
 

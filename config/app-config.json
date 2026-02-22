@@ -7,6 +7,12 @@
       "failureRate": 0.02,
       "minLatencyMs": 300,
       "maxLatencyMs": 1800
+    },
+    "orchestration": {
+      "historyPromptFetchLimit": 30,
+      "historyCharBudget": 12000,
+      "retryAttemptsPerExpert": 1,
+      "retryBackoffMs": 200
     }
   },
   "auth": {
