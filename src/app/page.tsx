@@ -4,6 +4,11 @@
  * Outputs: Static page content indicating scaffold status.
  */
 export default function HomePage() {
+  /**
+   * Purpose: Renders the root index page content.
+   * Inputs: None.
+   * Outputs: Home page JSX markup.
+   */
   return (
     <main>
       <h1>Panel of Experts</h1>

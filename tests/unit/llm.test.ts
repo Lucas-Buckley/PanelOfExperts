@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const originalEnv = { ...process.env };
 
 async function importFreshLlmModule() {
+  /**
+   * Purpose: Reloads LLM module after env mutations in each test case.
+   * Inputs: None.
+   * Outputs: Freshly imported LLM module exports.
+   */
   vi.resetModules();
   return import("../../src/lib/llm");
 }

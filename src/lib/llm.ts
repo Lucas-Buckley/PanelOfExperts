@@ -27,10 +27,20 @@ export type GenerateInput = {
 };
 
 function randomInt(min: number, max: number): number {
+  /**
+   * Purpose: Produces an integer within an inclusive range.
+   * Inputs: Minimum and maximum integer bounds.
+   * Outputs: Random integer in `[min, max]`.
+   */
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 function getMode(): LlmMode {
+  /**
+   * Purpose: Resolves and validates active LLM mode from config.
+   * Inputs: None.
+   * Outputs: `simulated` or `live` mode.
+   */
   const mode = appConfig.llmMode;
   if (mode !== "simulated" && mode !== "live") {
     throw new Error("LLM_MODE must be simulated or live.");
@@ -39,6 +49,11 @@ function getMode(): LlmMode {
 }
 
 export async function generateResponse(input: GenerateInput): Promise<LlmResponse> {
+  /**
+   * Purpose: Generates an LLM response through simulated or live provider path.
+   * Inputs: Prompt payload and optional model override.
+   * Outputs: API-shaped response containing content, usage, request id, and latency.
+   */
   if (!appConfig.llmEnabled) {
     throw new Error("LLM is disabled by LLM_ENABLED=false.");
   }

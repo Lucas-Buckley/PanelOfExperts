@@ -8,5 +8,10 @@ export type PanelRunnerResult = {
 };
 
 export function runPanel(): PanelRunnerResult {
+  /**
+   * Purpose: Placeholder panel execution entry point until orchestration is implemented.
+   * Inputs: None.
+   * Outputs: Static `not-implemented` status.
+   */
   return { status: "not-implemented" };
 }

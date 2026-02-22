@@ -8,3 +8,4 @@ coverage
 .DS_Store
 *.tsbuildinfo
 docs/
+scripts/export-architecture-diagram.mjs

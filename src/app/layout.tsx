@@ -15,6 +15,11 @@ type RootLayoutProps = {
 };
 
 export default function RootLayout({ children }: RootLayoutProps) {
+  /**
+   * Purpose: Renders the global HTML/body wrapper shared by all pages.
+   * Inputs: `children` content tree.
+   * Outputs: Root layout JSX.
+   */
   return (
     <html lang="en">
       <body>{children}</body>

@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const originalEnv = { ...process.env };
 
 async function importFreshConfigModule() {
+  /**
+   * Purpose: Reloads config module with current test environment values.
+   * Inputs: None.
+   * Outputs: Freshly imported `appConfig` module.
+   */
   vi.resetModules();
   return import("../../src/config/appConfig");
 }

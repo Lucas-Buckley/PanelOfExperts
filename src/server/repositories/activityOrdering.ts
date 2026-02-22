@@ -14,6 +14,11 @@ export async function markPromptActivity(args: {
   promptedAt?: Date;
   tx?: Prisma.TransactionClient;
 }): Promise<void> {
+  /**
+   * Purpose: Updates recency markers for a prompted conversation and its parent panel.
+   * Inputs: Conversation id, optional prompt timestamp, and optional transaction client.
+   * Outputs: No return value; writes recency updates to database.
+   */
   const db: DbClient = args.tx ?? prisma;
   const promptedAt = args.promptedAt ?? new Date();
 
@@ -30,6 +35,11 @@ export async function markPromptActivity(args: {
 }
 
 export async function listConversationsByRecentPrompt(panelId: number) {
+  /**
+   * Purpose: Lists a panel's conversations ordered by latest prompt activity.
+   * Inputs: Panel id.
+   * Outputs: Conversation list sorted by `lastPromptedAt DESC, id DESC`.
+   */
   return prisma.conversation.findMany({
     where: { panelId },
     orderBy: [{ lastPromptedAt: "desc" }, { id: "desc" }]
@@ -37,6 +47,11 @@ export async function listConversationsByRecentPrompt(panelId: number) {
 }
 
 export async function listPanelsByRecentPrompt(accountId: number) {
+  /**
+   * Purpose: Lists an account's panels ordered by latest prompt activity.
+   * Inputs: Account id.
+   * Outputs: Panel list sorted by `lastPromptedAt DESC, id DESC`.
+   */
   return prisma.panel.findMany({
     where: { accountId },
     orderBy: [{ lastPromptedAt: "desc" }, { id: "desc" }]

@@ -28,6 +28,11 @@ type FileConfig = {
 };
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  /**
+   * Purpose: Parses a boolean-like string with fallback behavior.
+   * Inputs: Raw env string and fallback boolean.
+   * Outputs: Parsed boolean (`true`/`false`) or fallback when invalid/missing.
+   */
   if (value === undefined) {
     return fallback;
   }
@@ -44,6 +49,11 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
+  /**
+   * Purpose: Parses numeric env-like input with fallback behavior.
+   * Inputs: Raw env string and fallback number.
+   * Outputs: Parsed finite number or fallback when invalid/missing.
+   */
   if (value === undefined) {
     return fallback;
   }
@@ -53,6 +63,11 @@ function parseNumber(value: string | undefined, fallback: number): number {
 }
 
 function parseLlmMode(value: string | undefined, fallback: LlmMode): LlmMode {
+  /**
+   * Purpose: Restricts mode parsing to supported LLM modes.
+   * Inputs: Raw mode string and fallback mode.
+   * Outputs: `live`/`simulated` or fallback when unsupported.
+   */
   if (value === "live" || value === "simulated") {
     return value;
   }
@@ -61,6 +76,11 @@ function parseLlmMode(value: string | undefined, fallback: LlmMode): LlmMode {
 }
 
 function loadFileConfig(): FileConfig {
+  /**
+   * Purpose: Reads and validates developer JSON config from disk.
+   * Inputs: None (reads `config/app-config.json` from current working directory).
+   * Outputs: Validated `FileConfig` object or throws on invalid/missing config.
+   */
   const filePath = path.resolve(process.cwd(), "config/app-config.json");
 
   if (!fs.existsSync(filePath)) {
@@ -87,6 +107,11 @@ function loadFileConfig(): FileConfig {
 const fileConfig = loadFileConfig();
 
 function resolveModelFromEnv(modelOverride: string | undefined): string {
+  /**
+   * Purpose: Resolves active model selection while enforcing pinning rule.
+   * Inputs: Optional model override.
+   * Outputs: Pinned model string or throws if selection violates pinning.
+   */
   const selected = modelOverride ?? process.env.OPENAI_MODEL ?? fileConfig.llm.pinnedModel;
 
   if (selected !== fileConfig.llm.pinnedModel) {
@@ -120,5 +145,10 @@ export const appConfig = {
 } as const;
 
 export function ensurePinnedModel(modelOverride?: string): string {
+  /**
+   * Purpose: Public helper to verify model selection respects pinned-model policy.
+   * Inputs: Optional model override string.
+   * Outputs: Valid pinned model string or throws on mismatch.
+   */
   return resolveModelFromEnv(modelOverride);
 }
