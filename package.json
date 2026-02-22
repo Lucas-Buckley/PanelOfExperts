@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run",
     "diagram:export": "node scripts/export-architecture-diagram.mjs",
-    "diagram:watch": "chokidar \"docs/architecture/architecture.md\" -c \"npm run diagram:export\"",
+    "diagram:watch": "chokidar \"docs/architecture/architecture.md\" \"docs/architecture/architecture-readable.md\" -c \"npm run diagram:export\"",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"
   },
