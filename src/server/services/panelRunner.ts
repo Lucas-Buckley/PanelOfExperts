@@ -1,17 +1,46 @@
 /**
- * Purpose: Placeholder orchestration service entry point for panel execution logic.
- * Inputs: Currently none.
- * Outputs: `PanelRunnerResult` status indicating implementation state.
+ * Purpose: Provides a placeholder panel orchestration contract for prompt-response execution.
+ * Inputs: Conversation/panel identifiers, prompt content, and ordered expert definitions.
+ * Outputs: Deterministic placeholder responses per expert for persistence and API flow scaffolding.
  */
-export type PanelRunnerResult = {
-  status: "not-implemented";
+export type PanelRunnerExpertInput = {
+  id: number;
+  name: string;
+  specialization: string;
+  soul: string;
+  position: number;
 };
 
-export function runPanel(): PanelRunnerResult {
+export type PanelRunnerInput = {
+  conversationId: number;
+  panelId: number;
+  promptContent: string;
+  experts: PanelRunnerExpertInput[];
+};
+
+export type PanelRunnerResponse = {
+  expertId: number;
+  sequence: number;
+  content: string;
+};
+
+export type PanelRunnerResult = {
+  mode: "placeholder";
+  responses: PanelRunnerResponse[];
+};
+
+export function runPanel(input: PanelRunnerInput): PanelRunnerResult {
   /**
-   * Purpose: Placeholder panel execution entry point until orchestration is implemented.
-   * Inputs: None.
-   * Outputs: Static `not-implemented` status.
+   * Purpose: Produces stable placeholder expert responses until full orchestration is implemented.
+   * Inputs: Panel runner input containing prompt context and ordered experts.
+   * Outputs: Placeholder responses mapped 1:1 to input experts in deterministic order.
    */
-  return { status: "not-implemented" };
+  return {
+    mode: "placeholder",
+    responses: input.experts.map((expert, index) => ({
+      expertId: expert.id,
+      sequence: index + 1,
+      content: `[PLACEHOLDER] ${expert.name} will respond to prompt: "${input.promptContent.slice(0, 120)}"`
+    }))
+  };
 }
