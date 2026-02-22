@@ -44,3 +44,17 @@ export function signToken(payload: object, secret: string = appConfig.jwtSecret)
   const expiresIn = appConfig.authAccessTokenTtl as jwt.SignOptions["expiresIn"];
   return jwt.sign(payload, secret, { expiresIn });
 }
+
+export function verifyToken(token: string, secret: string = appConfig.jwtSecret): jwt.JwtPayload {
+  /**
+   * Purpose: Verifies and decodes a JWT used for API auth.
+   * Inputs: Encoded JWT string and optional verification secret.
+   * Outputs: Decoded JWT payload object, or throws on invalid token.
+   */
+  const decoded = jwt.verify(token, secret);
+  if (typeof decoded === "string") {
+    throw new Error("JWT payload must be an object.");
+  }
+
+  return decoded;
+}
