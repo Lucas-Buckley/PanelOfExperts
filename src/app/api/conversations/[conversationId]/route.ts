@@ -48,7 +48,7 @@ function mapRouteError(error: unknown): { status: number; message: string } {
 
 export async function GET(
   request: Request,
-  { params }: { params: { conversationId: string } }
+  { params }: { params: Promise<{ conversationId: string }> }
 ) {
   /**
    * Purpose: Returns one conversation for authenticated owner with stable ordering.
@@ -57,7 +57,8 @@ export async function GET(
    */
   try {
     const accountId = getAuthenticatedAccountId(request);
-    const conversationId = parseConversationId(params.conversationId);
+    const routeParams = await params;
+    const conversationId = parseConversationId(routeParams.conversationId);
     const conversation = await getConversationForAccount(accountId, conversationId);
     return NextResponse.json(conversation, { status: 200 });
   } catch (error) {

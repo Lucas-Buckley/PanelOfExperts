@@ -45,7 +45,7 @@ function mapRouteError(error: unknown): { status: number; message: string } {
 
 export async function GET(
   request: Request,
-  { params }: { params: { panelId: string } }
+  { params }: { params: Promise<{ panelId: string }> }
 ) {
   /**
    * Purpose: Returns one panel when owned by the authenticated account.
@@ -54,7 +54,8 @@ export async function GET(
    */
   try {
     const accountId = getAuthenticatedAccountId(request);
-    const panelId = parsePanelId(params.panelId);
+    const routeParams = await params;
+    const panelId = parsePanelId(routeParams.panelId);
     const panel = await getPanelForAccount(accountId, panelId);
     return NextResponse.json(panel, { status: 200 });
   } catch (error) {

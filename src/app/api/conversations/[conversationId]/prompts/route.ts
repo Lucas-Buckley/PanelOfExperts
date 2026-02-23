@@ -45,7 +45,7 @@ function mapRouteError(error: unknown): { status: number; message: string } {
 
 export async function POST(
   request: Request,
-  { params }: { params: { conversationId: string } }
+  { params }: { params: Promise<{ conversationId: string }> }
 ) {
   /**
    * Purpose: Creates a prompt and persisted expert responses for an owned conversation.
@@ -54,7 +54,8 @@ export async function POST(
    */
   try {
     const accountId = getAuthenticatedAccountId(request);
-    const conversationId = parseConversationId(params.conversationId);
+    const routeParams = await params;
+    const conversationId = parseConversationId(routeParams.conversationId);
     const payload = await request.json();
     const created = await createPromptForConversation(accountId, conversationId, payload);
     return NextResponse.json(created, { status: 201 });
