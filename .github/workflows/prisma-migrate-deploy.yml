@@ -1,0 +1,41 @@
+name: Prisma Migrate Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "GitHub environment name with DATABASE_URL and DIRECT_URL secrets"
+        required: true
+        type: choice
+        options:
+          - preview
+          - production
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment }}
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Prisma schema
+        run: npx prisma validate --schema prisma/schema.prisma
+
+      - name: Deploy migrations
+        run: npm run db:migrate:deploy
+
+      - name: Confirm migration status
+        run: npm run db:migrate:status
