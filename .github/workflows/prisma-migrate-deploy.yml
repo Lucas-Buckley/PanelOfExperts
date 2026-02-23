@@ -14,10 +14,10 @@ on:
 jobs:
   migrate:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.target_environment }}
+    environment: ${{ github.event.inputs.target_environment }}
     env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL != '' && secrets.DATABASE_URL || vars.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL != '' && secrets.DIRECT_URL || vars.DIRECT_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,6 +30,18 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Verify required DB env values are present
+        run: |
+          echo "target_environment=${{ github.event.inputs.target_environment }}"
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::DATABASE_URL is empty. Set it in GitHub Environment secrets or vars for '${{ github.event.inputs.target_environment }}'."
+            exit 1
+          fi
+          if [ -z "${DIRECT_URL:-}" ]; then
+            echo "::error::DIRECT_URL is empty. Set it in GitHub Environment secrets or vars for '${{ github.event.inputs.target_environment }}'."
+            exit 1
+          fi
 
       - name: Validate Prisma schema
         run: npx prisma validate --schema prisma/schema.prisma
