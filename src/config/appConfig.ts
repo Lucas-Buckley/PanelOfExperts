@@ -125,7 +125,7 @@ const defaultOrchestrationConfig = {
 };
 
 const defaultSafetyConfig = {
-  maxExpertsPerPanel: 4,
+  maxExpertsPerPanel: 8,
   maxUserPromptChars: 4000,
   maxRequestPromptChars: 16000,
   maxLiveOutputTokens: 300

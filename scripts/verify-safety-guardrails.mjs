@@ -10,7 +10,7 @@ import path from "node:path";
 const REQUIRED_PINNED_MODEL = "gpt-5-nano-2025-08-07";
 
 const MAX_ALLOWED = {
-  maxExpertsPerPanel: 6,
+  maxExpertsPerPanel: 8,
   maxUserPromptChars: 8000,
   maxRequestPromptChars: 24000,
   maxLiveOutputTokens: 600,

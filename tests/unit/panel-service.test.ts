@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { appConfig } from "../../src/config/appConfig";
 
 const prismaMock = vi.hoisted(() => ({
   panel: {
@@ -108,13 +109,14 @@ describe("panel service", () => {
   });
 
   it("rejects panel creation when expert count exceeds safety cap", async () => {
-    const tooManyExperts = [
-      { name: "E1", specialization: "S1", soul: "Soul 1" },
-      { name: "E2", specialization: "S2", soul: "Soul 2" },
-      { name: "E3", specialization: "S3", soul: "Soul 3" },
-      { name: "E4", specialization: "S4", soul: "Soul 4" },
-      { name: "E5", specialization: "S5", soul: "Soul 5" }
-    ];
+    const tooManyExperts = Array.from(
+      { length: appConfig.llmMaxExpertsPerPanel + 1 },
+      (_unused, index) => ({
+        name: `E${index + 1}`,
+        specialization: `S${index + 1}`,
+        soul: `Soul ${index + 1}`
+      })
+    );
 
     await expect(
       createPanelForAccount(3, {
