@@ -46,18 +46,43 @@ jobs:
       - name: Validate Prisma schema
         run: npx prisma validate --schema prisma/schema.prisma
 
-      - name: Warm up direct database connection
+      - name: Select migration connection URL
         run: |
           set -euo pipefail
-          for attempt in 1 2 3 4 5; do
-            if printf 'SELECT 1;\n' | npx prisma db execute --url "$DIRECT_URL" --stdin >/dev/null 2>&1; then
-              echo "Direct database connectivity verified on attempt ${attempt}."
-              exit 0
-            fi
-            echo "Direct database not ready (attempt ${attempt}/5). Retrying in 8s..."
-            sleep 8
-          done
-          echo "::error::Unable to reach DIRECT_URL after retries."
+
+          probe_with_retry() {
+            local url="$1"
+            local label="$2"
+            local attempts="$3"
+            local sleep_seconds="$4"
+
+            for attempt in $(seq 1 "$attempts"); do
+              if printf 'SELECT 1;\n' | npx prisma db execute --url "$url" --stdin >/dev/null 2>&1; then
+                echo "${label} connectivity verified on attempt ${attempt}."
+                return 0
+              fi
+              echo "${label} not ready (attempt ${attempt}/${attempts}). Retrying in ${sleep_seconds}s..."
+              sleep "$sleep_seconds"
+            done
+
+            return 1
+          }
+
+          if probe_with_retry "$DIRECT_URL" "DIRECT_URL" 5 8; then
+            echo "DIRECT_URL=$DIRECT_URL" >> "$GITHUB_ENV"
+            echo "Using DIRECT_URL for migration steps."
+            exit 0
+          fi
+
+          echo "::warning::DIRECT_URL unreachable from runner. Falling back to DATABASE_URL for this migration run."
+
+          if probe_with_retry "$DATABASE_URL" "DATABASE_URL" 5 8; then
+            echo "DIRECT_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+            echo "Using DATABASE_URL fallback for migration steps."
+            exit 0
+          fi
+
+          echo "::error::Unable to reach DIRECT_URL or DATABASE_URL after retries."
           exit 1
 
       - name: Deploy migrations (with retry)
