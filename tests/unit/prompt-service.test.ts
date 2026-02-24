@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
+  conversation: { findFirst: vi.fn() },
+  prompt: { findMany: vi.fn() },
+  expert: { findMany: vi.fn() },
   $transaction: vi.fn()
 }));
 
@@ -54,6 +57,9 @@ function createTxClient(): TxClient {
 }
 
 beforeEach(() => {
+  prismaMock.conversation.findFirst.mockReset();
+  prismaMock.prompt.findMany.mockReset();
+  prismaMock.expert.findMany.mockReset();
   prismaMock.$transaction.mockReset();
   markPromptActivityMock.markPromptActivity.mockReset();
   panelRunnerMock.runPanel.mockReset();
@@ -61,10 +67,7 @@ beforeEach(() => {
 
 describe("prompt service", () => {
   it("rejects invalid conversation ownership", async () => {
-    const tx = createTxClient();
-    tx.conversation.findFirst.mockResolvedValue(null);
-    tx.prompt.findMany.mockResolvedValue([]);
-    prismaMock.$transaction.mockImplementation(async (cb: (txArg: TxClient) => unknown) => cb(tx));
+    prismaMock.conversation.findFirst.mockResolvedValue(null);
 
     await expect(
       createPromptForConversation(7, 88, {
@@ -74,15 +77,15 @@ describe("prompt service", () => {
       status: 404
     });
 
-    expect(tx.prompt.create).not.toHaveBeenCalled();
-    expect(tx.response.create).not.toHaveBeenCalled();
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    expect(panelRunnerMock.runPanel).not.toHaveBeenCalled();
   });
 
   it("creates prompt before responses and links response foreign keys correctly", async () => {
     const tx = createTxClient();
     const callOrder: string[] = [];
 
-    tx.conversation.findFirst.mockResolvedValue({
+    prismaMock.conversation.findFirst.mockResolvedValue({
       id: 88,
       panelId: 42,
       panel: {
@@ -90,10 +93,16 @@ describe("prompt service", () => {
         instructions: "Use practical, testable advice."
       }
     });
+    prismaMock.prompt.findMany.mockResolvedValue([]);
+    prismaMock.expert.findMany.mockResolvedValue([
+      { id: 2, name: "A", specialization: "X", soul: "Y", position: 1 },
+      { id: 5, name: "B", specialization: "X", soul: "Y", position: 2 }
+    ]);
+
+    tx.conversation.findFirst.mockResolvedValue({ id: 88 });
     tx.prompt.findFirst.mockResolvedValue({
       sequence: 4
     });
-    tx.prompt.findMany.mockResolvedValue([]);
     tx.prompt.create.mockImplementation(async (args: { data: { sequence: number } }) => {
       callOrder.push("prompt.create");
       return {
@@ -104,10 +113,6 @@ describe("prompt service", () => {
         createdAt: new Date("2026-02-22T00:00:00.000Z")
       };
     });
-    tx.expert.findMany.mockResolvedValue([
-      { id: 2, name: "A", specialization: "X", soul: "Y", position: 1 },
-      { id: 5, name: "B", specialization: "X", soul: "Y", position: 2 }
-    ]);
     tx.response.create.mockImplementation(async (args: { data: { expertId: number; promptId: number } }) => {
       callOrder.push(`response.create.${args.data.expertId}`);
       return {
@@ -169,7 +174,7 @@ describe("prompt service", () => {
   it("passes recency history under budget with first-prompt anchor when possible", async () => {
     const tx = createTxClient();
 
-    tx.conversation.findFirst.mockResolvedValue({
+    prismaMock.conversation.findFirst.mockResolvedValue({
       id: 88,
       panelId: 42,
       panel: {
@@ -177,20 +182,10 @@ describe("prompt service", () => {
         instructions: "Use practical, testable advice."
       }
     });
-    tx.prompt.findFirst.mockResolvedValue({
-      sequence: 10
-    });
-    tx.prompt.create.mockResolvedValue({
-      id: 777,
-      conversationId: 88,
-      sequence: 11,
-      content: "new prompt",
-      createdAt: new Date("2026-02-22T00:00:00.000Z")
-    });
-    tx.expert.findMany.mockResolvedValue([
+    prismaMock.expert.findMany.mockResolvedValue([
       { id: 2, name: "A", specialization: "X", soul: "Y", position: 1 }
     ]);
-    tx.prompt.findMany.mockResolvedValue([
+    prismaMock.prompt.findMany.mockResolvedValue([
       {
         sequence: 10,
         content: "x".repeat(9000),
@@ -207,6 +202,18 @@ describe("prompt service", () => {
         responses: []
       }
     ]);
+
+    tx.conversation.findFirst.mockResolvedValue({ id: 88 });
+    tx.prompt.findFirst.mockResolvedValue({
+      sequence: 10
+    });
+    tx.prompt.create.mockResolvedValue({
+      id: 777,
+      conversationId: 88,
+      sequence: 11,
+      content: "new prompt",
+      createdAt: new Date("2026-02-22T00:00:00.000Z")
+    });
     tx.response.create.mockResolvedValue({
       id: 901,
       promptId: 777,

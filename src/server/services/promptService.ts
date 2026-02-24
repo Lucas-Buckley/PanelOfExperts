@@ -170,9 +170,82 @@ export async function createPromptForConversation(
    * Outputs: Created prompt plus ordered persisted responses.
    */
   const parsed = parseCreatePromptInput(input);
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      id: conversationId,
+      panel: {
+        accountId
+      }
+    },
+    select: {
+      id: true,
+      panelId: true,
+      panel: {
+        select: {
+          name: true,
+          instructions: true
+        }
+      }
+    }
+  });
+
+  if (!conversation) {
+    throw new PromptServiceError("NOT_FOUND", 404, "Conversation not found.");
+  }
+
+  const experts = await prisma.expert.findMany({
+    where: { panelId: conversation.panelId },
+    orderBy: [{ position: "asc" }, { id: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      specialization: true,
+      soul: true,
+      position: true
+    }
+  });
+
+  const historyRows = await prisma.prompt.findMany({
+    where: {
+      conversationId
+    },
+    orderBy: [{ sequence: "desc" }, { id: "desc" }],
+    take: appConfig.llmHistoryPromptFetchLimit,
+    select: {
+      sequence: true,
+      content: true,
+      responses: {
+        orderBy: [{ sequence: "asc" }, { id: "asc" }],
+        select: {
+          expertId: true,
+          sequence: true,
+          content: true,
+          expert: {
+            select: {
+              name: true
+            }
+          }
+        }
+      }
+    }
+  });
+  const mappedHistory = mapPromptHistoryForRunner(historyRows);
+  const history = applyHistoryBudget(mappedHistory, appConfig.llmHistoryCharBudget);
+
+  const panelResult = await runPanel({
+    conversationId,
+    panelId: conversation.panelId,
+    panelName: conversation.panel.name,
+    panelInstructions: conversation.panel.instructions,
+    promptContent: parsed.content,
+    history,
+    experts
+  });
+
+  const validExpertIds = new Set(experts.map((expert) => expert.id));
 
   return prisma.$transaction(async (tx) => {
-    const conversation = await tx.conversation.findFirst({
+    const ownedConversation = await tx.conversation.findFirst({
       where: {
         id: conversationId,
         panel: {
@@ -180,18 +253,10 @@ export async function createPromptForConversation(
         }
       },
       select: {
-        id: true,
-        panelId: true,
-        panel: {
-          select: {
-            name: true,
-            instructions: true
-          }
-        }
+        id: true
       }
     });
-
-    if (!conversation) {
+    if (!ownedConversation) {
       throw new PromptServiceError("NOT_FOUND", 404, "Conversation not found.");
     }
 
@@ -200,8 +265,8 @@ export async function createPromptForConversation(
       orderBy: [{ sequence: "desc" }, { id: "desc" }],
       select: { sequence: true }
     });
-
     const nextPromptSequence = (previousPrompt?.sequence ?? 0) + 1;
+
     const prompt = await tx.prompt.create({
       data: {
         conversationId,
@@ -217,59 +282,6 @@ export async function createPromptForConversation(
       }
     });
 
-    const experts = await tx.expert.findMany({
-      where: { panelId: conversation.panelId },
-      orderBy: [{ position: "asc" }, { id: "asc" }],
-      select: {
-        id: true,
-        name: true,
-        specialization: true,
-        soul: true,
-        position: true
-      }
-    });
-
-    const historyRows = await tx.prompt.findMany({
-      where: {
-        conversationId,
-        sequence: {
-          lt: nextPromptSequence
-        }
-      },
-      orderBy: [{ sequence: "desc" }, { id: "desc" }],
-      take: appConfig.llmHistoryPromptFetchLimit,
-      select: {
-        sequence: true,
-        content: true,
-        responses: {
-          orderBy: [{ sequence: "asc" }, { id: "asc" }],
-          select: {
-            expertId: true,
-            sequence: true,
-            content: true,
-            expert: {
-              select: {
-                name: true
-              }
-            }
-          }
-        }
-      }
-    });
-    const mappedHistory = mapPromptHistoryForRunner(historyRows);
-    const history = applyHistoryBudget(mappedHistory, appConfig.llmHistoryCharBudget);
-
-    const panelResult = await runPanel({
-      conversationId,
-      panelId: conversation.panelId,
-      panelName: conversation.panel.name,
-      panelInstructions: conversation.panel.instructions,
-      promptContent: prompt.content,
-      history,
-      experts
-    });
-
-    const validExpertIds = new Set(experts.map((expert) => expert.id));
     const responses: PromptResponseView[] = [];
     for (const runnerResponse of panelResult.responses) {
       if (!validExpertIds.has(runnerResponse.expertId)) {

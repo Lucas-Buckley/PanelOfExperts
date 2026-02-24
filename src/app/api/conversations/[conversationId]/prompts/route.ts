@@ -60,7 +60,11 @@ export async function POST(
     const created = await createPromptForConversation(accountId, conversationId, payload);
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
+    console.error("Prompt API error:", error);
     const mapped = mapRouteError(error);
-    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
+    const shouldExposeError =
+      process.env.DEBUG_EXPOSE_ERROR_MESSAGES === "true" && error instanceof Error;
+    const errorMessage = shouldExposeError ? error.message : mapped.message;
+    return NextResponse.json({ error: errorMessage }, { status: mapped.status });
   }
 }
