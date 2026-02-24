@@ -46,8 +46,33 @@ jobs:
       - name: Validate Prisma schema
         run: npx prisma validate --schema prisma/schema.prisma
 
-      - name: Deploy migrations
-        run: npm run db:migrate:deploy
+      - name: Warm up direct database connection
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if printf 'SELECT 1;\n' | npx prisma db execute --url "$DIRECT_URL" --stdin >/dev/null 2>&1; then
+              echo "Direct database connectivity verified on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Direct database not ready (attempt ${attempt}/5). Retrying in 8s..."
+            sleep 8
+          done
+          echo "::error::Unable to reach DIRECT_URL after retries."
+          exit 1
+
+      - name: Deploy migrations (with retry)
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm run db:migrate:deploy; then
+              echo "Migration deploy succeeded on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Migration deploy failed (attempt ${attempt}/3). Retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::Migration deploy failed after retries."
+          exit 1
 
       - name: Confirm migration status
         run: npm run db:migrate:status
