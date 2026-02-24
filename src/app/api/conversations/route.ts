@@ -12,8 +12,6 @@ import {
   mapConversationErrorToHttp
 } from "../../../server/services/conversationService";
 
-const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
-
 function mapRouteError(error: unknown): { status: number; message: string } {
   /**
    * Purpose: Merges auth and conversation service errors for route responses.
@@ -38,13 +36,10 @@ export async function POST(request: Request) {
     const accountId = getAuthenticatedAccountId(request);
     const payload = await request.json();
     const conversation = await createConversationForAccount(accountId, payload);
-    return NextResponse.json(conversation, { status: 201, headers: NO_STORE_HEADERS });
+    return NextResponse.json(conversation, { status: 201 });
   } catch (error) {
     const mapped = mapRouteError(error);
-    return NextResponse.json(
-      { error: mapped.message },
-      { status: mapped.status, headers: NO_STORE_HEADERS }
-    );
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }
 
@@ -61,19 +56,13 @@ export async function GET(request: Request) {
     const panelId = Number(panelIdRaw);
 
     if (!Number.isInteger(panelId) || panelId <= 0) {
-      return NextResponse.json(
-        { error: "Invalid panel id." },
-        { status: 400, headers: NO_STORE_HEADERS }
-      );
+      return NextResponse.json({ error: "Invalid panel id." }, { status: 400 });
     }
 
     const conversations = await listConversationsForPanelForAccount(accountId, { panelId });
-    return NextResponse.json(conversations, { status: 200, headers: NO_STORE_HEADERS });
+    return NextResponse.json(conversations, { status: 200 });
   } catch (error) {
     const mapped = mapRouteError(error);
-    return NextResponse.json(
-      { error: mapped.message },
-      { status: mapped.status, headers: NO_STORE_HEADERS }
-    );
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }

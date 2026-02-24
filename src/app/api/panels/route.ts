@@ -12,8 +12,6 @@ import {
   mapPanelErrorToHttp
 } from "../../../server/services/panelService";
 
-const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
-
 function mapRouteError(error: unknown): { status: number; message: string } {
   /**
    * Purpose: Merges auth and panel error mappings into one route-level mapper.
@@ -38,13 +36,10 @@ export async function POST(request: Request) {
     const accountId = getAuthenticatedAccountId(request);
     const payload = await request.json();
     const panel = await createPanelForAccount(accountId, payload);
-    return NextResponse.json(panel, { status: 201, headers: NO_STORE_HEADERS });
+    return NextResponse.json(panel, { status: 201 });
   } catch (error) {
     const mapped = mapRouteError(error);
-    return NextResponse.json(
-      { error: mapped.message },
-      { status: mapped.status, headers: NO_STORE_HEADERS }
-    );
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }
 
@@ -57,12 +52,9 @@ export async function GET(request: Request) {
   try {
     const accountId = getAuthenticatedAccountId(request);
     const panels = await listPanelsForAccount(accountId);
-    return NextResponse.json(panels, { status: 200, headers: NO_STORE_HEADERS });
+    return NextResponse.json(panels, { status: 200 });
   } catch (error) {
     const mapped = mapRouteError(error);
-    return NextResponse.json(
-      { error: mapped.message },
-      { status: mapped.status, headers: NO_STORE_HEADERS }
-    );
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }

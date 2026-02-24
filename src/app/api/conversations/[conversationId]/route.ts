@@ -11,8 +11,6 @@ import {
   mapConversationErrorToHttp
 } from "../../../../server/services/conversationService";
 
-const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
-
 function parseConversationId(rawConversationId: string): number {
   /**
    * Purpose: Parses and validates `conversationId` from route path params.
@@ -62,12 +60,9 @@ export async function GET(
     const routeParams = await params;
     const conversationId = parseConversationId(routeParams.conversationId);
     const conversation = await getConversationForAccount(accountId, conversationId);
-    return NextResponse.json(conversation, { status: 200, headers: NO_STORE_HEADERS });
+    return NextResponse.json(conversation, { status: 200 });
   } catch (error) {
     const mapped = mapRouteError(error);
-    return NextResponse.json(
-      { error: mapped.message },
-      { status: mapped.status, headers: NO_STORE_HEADERS }
-    );
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }
