@@ -1,7 +1,7 @@
 /**
- * Purpose: Implements conversation domain logic for create/read APIs with ownership enforcement.
+ * Purpose: Implements conversation domain logic for create/list/read APIs with ownership enforcement.
  * Inputs: Authenticated account id plus conversation payload/identifier values.
- * Outputs: Conversation DTOs or mapped domain error metadata for HTTP responses.
+ * Outputs: Conversation DTOs/lists or mapped domain error metadata for HTTP responses.
  */
 import { z } from "zod";
 
@@ -14,6 +14,12 @@ const createConversationSchema = z.object({
 });
 
 type CreateConversationInput = z.infer<typeof createConversationSchema>;
+
+const listConversationsSchema = z.object({
+  panelId: z.number().int().positive()
+});
+
+type ListConversationsInput = z.infer<typeof listConversationsSchema>;
 
 export type ConversationResponseView = {
   id: number;
@@ -41,6 +47,13 @@ export type ConversationView = {
   prompts: ConversationPromptView[];
 };
 
+export type ConversationListItemView = {
+  id: number;
+  panelId: number;
+  name: string;
+  lastPromptedAt: Date | null;
+};
+
 class ConversationServiceError extends Error {
   code: "VALIDATION" | "NOT_FOUND";
   status: 400 | 404;
@@ -61,6 +74,20 @@ function parseCreateConversationInput(input: unknown): CreateConversationInput {
   const parsed = createConversationSchema.safeParse(input);
   if (!parsed.success) {
     throw new ConversationServiceError("VALIDATION", 400, "Invalid conversation payload.");
+  }
+
+  return parsed.data;
+}
+
+function parseListConversationsInput(input: unknown): ListConversationsInput {
+  /**
+   * Purpose: Validates and parses list-conversations payload/query input.
+   * Inputs: Unknown list input containing panel id.
+   * Outputs: Typed `ListConversationsInput`, or throws validation error.
+   */
+  const parsed = listConversationsSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new ConversationServiceError("VALIDATION", 400, "Invalid list conversations payload.");
   }
 
   return parsed.data;
@@ -174,6 +201,43 @@ export async function getConversationForAccount(
   }
 
   return conversation;
+}
+
+export async function listConversationsForPanelForAccount(
+  accountId: number,
+  input: unknown
+): Promise<ConversationListItemView[]> {
+  /**
+   * Purpose: Lists conversations for an owned panel ordered by recent prompt activity.
+   * Inputs: Authenticated account id and list payload with panel id.
+   * Outputs: Ordered lightweight conversation list for panel-specific selectors.
+   */
+  const parsed = parseListConversationsInput(input);
+
+  const ownedPanel = await prisma.panel.findFirst({
+    where: {
+      id: parsed.panelId,
+      accountId
+    },
+    select: { id: true }
+  });
+
+  if (!ownedPanel) {
+    throw new ConversationServiceError("NOT_FOUND", 404, "Panel not found.");
+  }
+
+  return prisma.conversation.findMany({
+    where: {
+      panelId: parsed.panelId
+    },
+    orderBy: [{ lastPromptedAt: "desc" }, { id: "desc" }],
+    select: {
+      id: true,
+      panelId: true,
+      name: true,
+      lastPromptedAt: true
+    }
+  });
 }
 
 export function mapConversationErrorToHttp(error: unknown): {

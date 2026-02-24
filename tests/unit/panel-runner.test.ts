@@ -142,6 +142,7 @@ describe("panel runner", () => {
     expect(seenPrompts).toHaveLength(1);
     expect(seenPrompts[0]).toContain("Panel name: Launch Council");
     expect(seenPrompts[0]).toContain("Soul behavior rules:");
+    expect(seenPrompts[0]).toContain("Response length guardrails:");
     expect(seenPrompts[0]).toContain("Keep specialization as your primary scope and depth boundary.");
     expect(seenPrompts[0]).toContain("Treat the Soul as your style and decision lens.");
     expect(seenPrompts[0]).toContain("Do not let Soul override your specialization scope.");
@@ -191,6 +192,7 @@ describe("panel runner", () => {
 
     expect(seenPrompts).toHaveLength(1);
     expect(seenPrompts[0]).toContain("Conversation context from recent history:");
+    expect(seenPrompts[0]).toContain("Response length guardrails:");
     expect(seenPrompts[0]).toContain("How should we launch this?");
     expect(seenPrompts[0]).toContain("Start with a narrow ICP.");
     expect(seenPrompts[0]).toContain("Avoid repeating prior experts verbatim; add a complementary angle from your specialization.");
