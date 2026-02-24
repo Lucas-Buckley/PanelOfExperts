@@ -77,4 +77,42 @@ describe("llm provider", () => {
       "LLM prompt exceeds max request size"
     );
   });
+
+  it("extracts live text from response output message parts when output_text is empty", async () => {
+    process.env.OPENAI_MODEL = "gpt-5-nano-2025-08-07";
+    process.env.LLM_MODE = "simulated";
+    process.env.LLM_ENABLED = "true";
+
+    const { extractLiveResponseContent } = await importFreshLlmModule();
+
+    const extracted = extractLiveResponseContent({
+      output_text: "",
+      output: [
+        {
+          type: "message",
+          content: [
+            { type: "output_text", text: "First line." },
+            { type: "output_text", text: "Second line." }
+          ]
+        }
+      ]
+    });
+
+    expect(extracted).toBe("First line.\n\nSecond line.");
+  });
+
+  it("returns empty string when no live text is available", async () => {
+    process.env.OPENAI_MODEL = "gpt-5-nano-2025-08-07";
+    process.env.LLM_MODE = "simulated";
+    process.env.LLM_ENABLED = "true";
+
+    const { extractLiveResponseContent } = await importFreshLlmModule();
+
+    const extracted = extractLiveResponseContent({
+      output_text: "   ",
+      output: [{ type: "function_call", content: [] }]
+    });
+
+    expect(extracted).toBe("");
+  });
 });

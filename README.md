@@ -17,6 +17,22 @@ For protected preview deployments, set:
 export VERCEL_BYPASS_TOKEN="your-rotated-bypass-token"
 ```
 
+## Operations Readiness Checks
+
+Run lightweight endpoint health checks:
+
+```bash
+HEALTH_BASE_URL="https://panel-of-experts-production.vercel.app" \
+npm run health:deploy
+```
+
+Run rollback-readiness verification (workflows/scripts/env contracts + optional remote probes):
+
+```bash
+ROLLBACK_BASE_URL="https://panel-of-experts-production.vercel.app" \
+npm run rollback:verify
+```
+
 ## Cost And Safety Guardrails
 
 Verify guardrails before release:
