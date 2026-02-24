@@ -7,6 +7,8 @@ import { NextResponse } from "next/server";
 
 import { loginAccount, mapAuthErrorToHttp } from "../../../../server/services/authService";
 
+const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
+
 export async function POST(request: Request) {
   /**
    * Purpose: Authenticates account credentials and returns bearer auth payload.
@@ -16,9 +18,12 @@ export async function POST(request: Request) {
   try {
     const payload = await request.json();
     const result = await loginAccount(payload);
-    return NextResponse.json(result, { status: 200 });
+    return NextResponse.json(result, { status: 200, headers: NO_STORE_HEADERS });
   } catch (error) {
     const mapped = mapAuthErrorToHttp(error);
-    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
+    return NextResponse.json(
+      { error: mapped.message },
+      { status: mapped.status, headers: NO_STORE_HEADERS }
+    );
   }
 }

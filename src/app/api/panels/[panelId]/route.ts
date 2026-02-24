@@ -8,6 +8,8 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedAccountId, mapAccountAuthErrorToHttp } from "../../../../server/http/accountAuth";
 import { getPanelForAccount, mapPanelErrorToHttp } from "../../../../server/services/panelService";
 
+const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
+
 function parsePanelId(rawPanelId: string): number {
   /**
    * Purpose: Parses and validates route `panelId` path value.
@@ -57,9 +59,12 @@ export async function GET(
     const routeParams = await params;
     const panelId = parsePanelId(routeParams.panelId);
     const panel = await getPanelForAccount(accountId, panelId);
-    return NextResponse.json(panel, { status: 200 });
+    return NextResponse.json(panel, { status: 200, headers: NO_STORE_HEADERS });
   } catch (error) {
     const mapped = mapRouteError(error);
-    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
+    return NextResponse.json(
+      { error: mapped.message },
+      { status: mapped.status, headers: NO_STORE_HEADERS }
+    );
   }
 }

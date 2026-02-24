@@ -156,6 +156,7 @@ async function requestJson<T>(args: {
 
   const response = await fetch(args.path, {
     method: args.method ?? "GET",
+    cache: "no-store",
     headers,
     body: args.body !== undefined ? JSON.stringify(args.body) : undefined
   });

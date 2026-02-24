@@ -8,6 +8,8 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedAccountId, mapAccountAuthErrorToHttp } from "../../../../../server/http/accountAuth";
 import { createPromptForConversation, mapPromptErrorToHttp } from "../../../../../server/services/promptService";
 
+const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
+
 function parseConversationId(rawConversationId: string): number {
   /**
    * Purpose: Parses and validates `conversationId` from route parameters.
@@ -58,13 +60,16 @@ export async function POST(
     const conversationId = parseConversationId(routeParams.conversationId);
     const payload = await request.json();
     const created = await createPromptForConversation(accountId, conversationId, payload);
-    return NextResponse.json(created, { status: 201 });
+    return NextResponse.json(created, { status: 201, headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error("Prompt API error:", error);
     const mapped = mapRouteError(error);
     const shouldExposeError =
       process.env.DEBUG_EXPOSE_ERROR_MESSAGES === "true" && error instanceof Error;
     const errorMessage = shouldExposeError ? error.message : mapped.message;
-    return NextResponse.json({ error: errorMessage }, { status: mapped.status });
+    return NextResponse.json(
+      { error: errorMessage },
+      { status: mapped.status, headers: NO_STORE_HEADERS }
+    );
   }
 }
