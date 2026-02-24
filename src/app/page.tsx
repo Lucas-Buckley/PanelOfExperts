@@ -63,13 +63,6 @@ type ConversationView = {
   prompts: ConversationPromptView[];
 };
 
-type ConversationListItemView = {
-  id: number;
-  panelId: number;
-  name: string;
-  lastPromptedAt: string | null;
-};
-
 type PromptCreateResponse = {
   prompt: {
     id: number;
@@ -93,30 +86,12 @@ type ApiErrorShape = {
 };
 
 type ExpertDraft = {
-  id: string;
   name: string;
   specialization: string;
   soul: string;
 };
 
 const AUTH_STORAGE_KEY = "poe-auth";
-let expertDraftCounter = 0;
-
-function createExpertDraft(): ExpertDraft {
-  /**
-   * Purpose: Creates one expert draft row with a stable client-side id for React keying.
-   * Inputs: None.
-   * Outputs: Blank expert draft object with deterministic incremental id.
-   */
-  expertDraftCounter += 1;
-
-  return {
-    id: `draft-${expertDraftCounter}`,
-    name: "",
-    specialization: "",
-    soul: ""
-  };
-}
 
 async function requestJson<T>(args: {
   path: string;
@@ -213,10 +188,11 @@ export default function HomePage() {
   const [newPanelName, setNewPanelName] = useState("");
   const [newPanelDescription, setNewPanelDescription] = useState("");
   const [newPanelInstructions, setNewPanelInstructions] = useState("");
-  const [expertDrafts, setExpertDrafts] = useState<ExpertDraft[]>([createExpertDraft()]);
+  const [expertDrafts, setExpertDrafts] = useState<ExpertDraft[]>([
+    { name: "", specialization: "", soul: "" }
+  ]);
 
   const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
-  const [panelConversations, setPanelConversations] = useState<ConversationListItemView[]>([]);
   const [newConversationName, setNewConversationName] = useState("");
   const [conversationIdInput, setConversationIdInput] = useState("");
   const [promptInput, setPromptInput] = useState("");
@@ -265,40 +241,6 @@ export default function HomePage() {
     });
     setActivePanel(panel);
     return panel;
-  }
-
-  function sortPanelConversations(
-    conversations: ConversationListItemView[]
-  ): ConversationListItemView[] {
-    /**
-     * Purpose: Applies deterministic recency sorting for panel conversation list rendering.
-     * Inputs: Unsorted conversation list payload from API.
-     * Outputs: Conversations sorted by `lastPromptedAt DESC, id DESC`.
-     */
-    return [...conversations].sort((left, right) => {
-      const leftTime = left.lastPromptedAt ? Date.parse(left.lastPromptedAt) : 0;
-      const rightTime = right.lastPromptedAt ? Date.parse(right.lastPromptedAt) : 0;
-      if (leftTime !== rightTime) {
-        return rightTime - leftTime;
-      }
-
-      return right.id - left.id;
-    });
-  }
-
-  async function loadPanelConversations(accessToken: string, panelId: number): Promise<void> {
-    /**
-     * Purpose: Loads one panel's conversation list so users can see and select ids directly.
-     * Inputs: Bearer access token and active panel id.
-     * Outputs: No return value; updates conversation-list state for selected panel.
-     */
-    const listedConversations = await requestJson<ConversationListItemView[]>({
-      path: `/api/conversations?panelId=${panelId}`,
-      method: "GET",
-      accessToken
-    });
-
-    setPanelConversations(sortPanelConversations(listedConversations));
   }
 
   useEffect(() => {
@@ -363,7 +305,6 @@ export default function HomePage() {
     setPanels([]);
     setActivePanel(null);
     setActiveConversation(null);
-    setPanelConversations([]);
     setPromptInput("");
     writeStoredAuth(null);
     setStatusMessage("Signed out.");
@@ -391,42 +332,9 @@ export default function HomePage() {
       });
       setActivePanel(panel);
       setActiveConversation(null);
-      await loadPanelConversations(auth.accessToken, panel.id);
       setStatusMessage(`Selected panel: ${panel.name}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to load panel.";
-      setErrorMessage(message);
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function openConversationById(conversationId: number): Promise<void> {
-    /**
-     * Purpose: Loads one conversation and synchronizes active panel/list context around that id.
-     * Inputs: Target conversation id.
-     * Outputs: No return value; updates active conversation/panel and id-input state.
-     */
-    if (!auth) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      const conversation = await requestJson<ConversationView>({
-        path: `/api/conversations/${conversationId}`,
-        method: "GET",
-        accessToken: auth.accessToken
-      });
-      await ensureActivePanel(auth.accessToken, conversation.panelId);
-      await loadPanelConversations(auth.accessToken, conversation.panelId);
-      setActiveConversation(sortConversation(conversation));
-      setConversationIdInput(String(conversation.id));
-      setStatusMessage(`Loaded conversation #${conversation.id}.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load conversation.";
       setErrorMessage(message);
     } finally {
       setIsBusy(false);
@@ -456,7 +364,7 @@ export default function HomePage() {
      * Inputs: None.
      * Outputs: No return value; updates expert draft list state.
      */
-    setExpertDrafts((current) => [...current, createExpertDraft()]);
+    setExpertDrafts((current) => [...current, { name: "", specialization: "", soul: "" }]);
   }
 
   function removeExpertDraft(index: number): void {
@@ -497,22 +405,17 @@ export default function HomePage() {
           name: newPanelName,
           description: newPanelDescription.length > 0 ? newPanelDescription : null,
           instructions: newPanelInstructions.length > 0 ? newPanelInstructions : null,
-          experts: expertDrafts.map((expert) => ({
-            name: expert.name,
-            specialization: expert.specialization,
-            soul: expert.soul
-          }))
+          experts: expertDrafts
         }
       });
 
       await loadPanels(auth.accessToken);
       setActivePanel(created);
       setActiveConversation(null);
-      setPanelConversations([]);
       setNewPanelName("");
       setNewPanelDescription("");
       setNewPanelInstructions("");
-      setExpertDrafts([createExpertDraft()]);
+      setExpertDrafts([{ name: "", specialization: "", soul: "" }]);
       setStatusMessage(`Created panel: ${created.name}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to create panel.";
@@ -547,8 +450,6 @@ export default function HomePage() {
         }
       });
       setActiveConversation(sortConversation(created));
-      await loadPanelConversations(auth.accessToken, activePanel.id);
-      setConversationIdInput(String(created.id));
       setNewConversationName("");
       setStatusMessage(`Opened conversation: ${created.name}`);
     } catch (error) {
@@ -577,7 +478,24 @@ export default function HomePage() {
       return;
     }
 
-    await openConversationById(parsedId);
+    setStatusMessage("");
+    setErrorMessage("");
+    setIsBusy(true);
+    try {
+      const conversation = await requestJson<ConversationView>({
+        path: `/api/conversations/${parsedId}`,
+        method: "GET",
+        accessToken: auth.accessToken
+      });
+      await ensureActivePanel(auth.accessToken, conversation.panelId);
+      setActiveConversation(sortConversation(conversation));
+      setStatusMessage(`Loaded conversation #${conversation.id}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load conversation.";
+      setErrorMessage(message);
+    } finally {
+      setIsBusy(false);
+    }
   }
 
   async function handleSubmitPrompt(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -625,9 +543,6 @@ export default function HomePage() {
       setPromptInput("");
       setStatusMessage("Prompt submitted.");
       await loadPanels(auth.accessToken);
-      if (activeConversation) {
-        await loadPanelConversations(auth.accessToken, activeConversation.panelId);
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to submit prompt.";
       setErrorMessage(message);
@@ -640,6 +555,7 @@ export default function HomePage() {
     <main className="page">
       <section className="hero">
         <h1>Panel of Experts</h1>
+        <p>Step 8 MVP UI: auth, panel selection, conversation view, and prompt loop.</p>
       </section>
 
       <section className="card">
@@ -773,7 +689,7 @@ export default function HomePage() {
 
                 <h4>Experts</h4>
                 {expertDrafts.map((expert, index) => (
-                  <fieldset key={expert.id}>
+                  <fieldset key={`${index}-${expert.name}-${expert.specialization}`}>
                     <legend>Expert {index + 1}</legend>
                     <label>
                       Name
@@ -878,39 +794,6 @@ export default function HomePage() {
                 </button>
               </form>
             </div>
-
-            {activePanel ? (
-              <div className="active-info">
-                <h3>Conversations In Active Panel ({activePanel.name})</h3>
-                <button
-                  type="button"
-                  onClick={() => void loadPanelConversations(auth.accessToken, activePanel.id)}
-                  disabled={isBusy}
-                >
-                  Refresh Conversation List
-                </button>
-                {panelConversations.length === 0 ? (
-                  <p>No conversations yet for this panel.</p>
-                ) : (
-                  <ul>
-                    {panelConversations.map((conversation) => (
-                      <li key={conversation.id}>
-                        <button
-                          type="button"
-                          onClick={() => void openConversationById(conversation.id)}
-                          disabled={isBusy}
-                        >
-                          #{conversation.id} - {conversation.name}
-                        </button>
-                        <div>Last prompted: {formatTimestamp(conversation.lastPromptedAt)}</div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ) : (
-              <p>Select a panel to see its conversations and ids.</p>
-            )}
 
             {activeConversation ? (
               <div className="active-info">

@@ -153,28 +153,6 @@ function formatCurrentTurnOutputs(outputs: PanelRunnerResponse[]): string {
     .join("\n");
 }
 
-function buildResponseLengthGuidance(): string {
-  /**
-   * Purpose: Builds deterministic response-length instructions to reduce output truncation risk.
-   * Inputs: Runtime output token cap from app config.
-   * Outputs: Guardrail text block with word and bullet limits.
-   */
-  const outputTokenCap = appConfig.llmMaxLiveOutputTokens;
-  const conservativeWordLimit = Math.max(60, Math.floor(outputTokenCap * 0.45));
-  const conservativeBulletLimit = Math.max(
-    3,
-    Math.min(8, Math.floor(conservativeWordLimit / 20))
-  );
-
-  return [
-    "Response length guardrails:",
-    `- Keep your final answer under ${conservativeWordLimit} words.`,
-    `- Use at most ${conservativeBulletLimit} bullet points.`,
-    "- Prefer short sentences and concrete statements.",
-    "- Do not add filler introductions or long conclusions."
-  ].join("\n");
-}
-
 function composePromptForExpert(args: {
   expert: PanelRunnerExpertInput;
   orderedExperts: PanelRunnerExpertInput[];
@@ -196,7 +174,6 @@ function composePromptForExpert(args: {
     args.panelInstructions
   );
   const peers = formatPeerSpecializations(args.orderedExperts, args.expert.id);
-  const responseLengthGuidance = buildResponseLengthGuidance();
   const isFirstConversationTurn = args.history.length === 0;
   const isMinimalFirstCase = isFirstConversationTurn && args.isFirstExpertInTurn;
 
@@ -208,8 +185,6 @@ function composePromptForExpert(args: {
       "",
       "Current user prompt:",
       args.promptContent,
-      "",
-      responseLengthGuidance,
       "",
       "Respond as this expert with concise, concrete reasoning.",
       "Focus on a distinctive angle from your specialization."
@@ -226,8 +201,6 @@ function composePromptForExpert(args: {
     "",
     "Responding prompt for this turn:",
     args.promptContent,
-    "",
-    responseLengthGuidance,
     "",
     "Prior expert outputs from this same turn:",
     formatCurrentTurnOutputs(args.priorCurrentTurnOutputs),

@@ -6,8 +6,7 @@ const prismaMock = vi.hoisted(() => ({
   },
   conversation: {
     create: vi.fn(),
-    findFirst: vi.fn(),
-    findMany: vi.fn()
+    findFirst: vi.fn()
   }
 }));
 
@@ -17,15 +16,13 @@ vi.mock("../../src/lib/db", () => ({
 
 import {
   createConversationForAccount,
-  getConversationForAccount,
-  listConversationsForPanelForAccount
+  getConversationForAccount
 } from "../../src/server/services/conversationService";
 
 beforeEach(() => {
   prismaMock.panel.findFirst.mockReset();
   prismaMock.conversation.create.mockReset();
   prismaMock.conversation.findFirst.mockReset();
-  prismaMock.conversation.findMany.mockReset();
 });
 
 describe("conversation service", () => {
@@ -110,58 +107,5 @@ describe("conversation service", () => {
         })
       })
     );
-  });
-
-  it("lists conversations for owned panel in recency order", async () => {
-    prismaMock.panel.findFirst.mockResolvedValue({ id: 12 });
-    prismaMock.conversation.findMany.mockResolvedValue([
-      {
-        id: 90,
-        panelId: 12,
-        name: "Newest",
-        lastPromptedAt: new Date("2026-02-24T02:00:00.000Z")
-      },
-      {
-        id: 88,
-        panelId: 12,
-        name: "Older",
-        lastPromptedAt: new Date("2026-02-23T21:00:00.000Z")
-      }
-    ]);
-
-    const listed = await listConversationsForPanelForAccount(5, { panelId: 12 });
-
-    expect(listed).toHaveLength(2);
-    expect(prismaMock.panel.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: 12,
-        accountId: 5
-      },
-      select: { id: true }
-    });
-    expect(prismaMock.conversation.findMany).toHaveBeenCalledWith({
-      where: {
-        panelId: 12
-      },
-      orderBy: [{ lastPromptedAt: "desc" }, { id: "desc" }],
-      select: {
-        id: true,
-        panelId: true,
-        name: true,
-        lastPromptedAt: true
-      }
-    });
-  });
-
-  it("rejects conversation listing when panel is not owned", async () => {
-    prismaMock.panel.findFirst.mockResolvedValue(null);
-
-    await expect(
-      listConversationsForPanelForAccount(7, { panelId: 400 })
-    ).rejects.toMatchObject({
-      status: 404
-    });
-
-    expect(prismaMock.conversation.findMany).not.toHaveBeenCalled();
   });
 });
