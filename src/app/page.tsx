@@ -5,7 +5,7 @@
  * Inputs: None.
  * Outputs: Interactive client page for running end-to-end prompt flows.
  */
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatTimestamp, sortConversation } from "./pageHelpers";
 
 type AccountIdentity = {
@@ -118,6 +118,23 @@ function createExpertDraft(): ExpertDraft {
   };
 }
 
+function sortPanels(items: PanelView[]): PanelView[] {
+  /**
+   * Purpose: Applies deterministic recency ordering for panel list rendering.
+   * Inputs: Unsorted panel array.
+   * Outputs: Panels sorted by `lastPromptedAt DESC, id DESC`.
+   */
+  return [...items].sort((left, right) => {
+    const leftTime = left.lastPromptedAt ? Date.parse(left.lastPromptedAt) : 0;
+    const rightTime = right.lastPromptedAt ? Date.parse(right.lastPromptedAt) : 0;
+    if (leftTime !== rightTime) {
+      return rightTime - leftTime;
+    }
+
+    return right.id - left.id;
+  });
+}
+
 async function requestJson<T>(args: {
   path: string;
   method?: "GET" | "POST";
@@ -224,6 +241,19 @@ export default function HomePage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const panelListRequestIdRef = useRef(0);
+
+  function upsertPanel(panel: PanelView): void {
+    /**
+     * Purpose: Inserts/updates one panel locally so newly created panels render immediately.
+     * Inputs: Panel DTO returned from API.
+     * Outputs: No return value; updates panel list state.
+     */
+    setPanels((current) => {
+      const withoutCurrent = current.filter((item) => item.id !== panel.id);
+      return sortPanels([panel, ...withoutCurrent]);
+    });
+  }
 
   const expertNameById = useMemo(() => {
     /**
@@ -234,19 +264,25 @@ export default function HomePage() {
     return new Map((activePanel?.experts ?? []).map((expert) => [expert.id, expert.name]));
   }, [activePanel]);
 
-  async function loadPanels(accessToken: string): Promise<void> {
+  const loadPanels = useCallback(async (accessToken: string): Promise<void> => {
     /**
      * Purpose: Loads account-owned panel list from API and updates local state.
      * Inputs: Bearer access token.
      * Outputs: No return value; updates panel list state.
      */
+    const requestId = panelListRequestIdRef.current + 1;
+    panelListRequestIdRef.current = requestId;
     const listedPanels = await requestJson<PanelView[]>({
       path: "/api/panels",
       method: "GET",
       accessToken
     });
-    setPanels(listedPanels);
-  }
+    if (requestId !== panelListRequestIdRef.current) {
+      return;
+    }
+
+    setPanels(sortPanels(listedPanels));
+  }, []);
 
   async function ensureActivePanel(accessToken: string, panelId: number): Promise<PanelView> {
     /**
@@ -317,7 +353,7 @@ export default function HomePage() {
       const message = error instanceof Error ? error.message : "Failed to load panels.";
       setErrorMessage(message);
     });
-  }, []);
+  }, [loadPanels]);
 
   async function handleAuth(mode: "register" | "login", event: FormEvent<HTMLFormElement>) {
     /**
@@ -505,7 +541,16 @@ export default function HomePage() {
         }
       });
 
-      await loadPanels(auth.accessToken);
+      upsertPanel(created);
+      try {
+        await loadPanels(auth.accessToken);
+      } catch {
+        /**
+         * Purpose: Keeps optimistic panel insert visible when non-critical list refresh fails.
+         * Inputs: Ignored refresh error.
+         * Outputs: No throw to avoid masking successful panel creation.
+         */
+      }
       setActivePanel(created);
       setActiveConversation(null);
       setPanelConversations([]);
