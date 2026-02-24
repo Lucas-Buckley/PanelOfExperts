@@ -15,6 +15,9 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
     "db:studio": "prisma studio",
+    "smoke:deploy": "node scripts/run-deployment-smoke.mjs",
+    "smoke:deploy:simulated": "SMOKE_EXPECT_MODE=simulated node scripts/run-deployment-smoke.mjs",
+    "smoke:deploy:live": "SMOKE_EXPECT_MODE=live node scripts/run-deployment-smoke.mjs",
     "release:verify": "npm run test:unit && npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
