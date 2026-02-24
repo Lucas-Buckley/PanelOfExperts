@@ -27,6 +27,12 @@ type FileConfig = {
       retryAttemptsPerExpert?: number;
       retryBackoffMs?: number;
     };
+    safety?: {
+      maxExpertsPerPanel?: number;
+      maxUserPromptChars?: number;
+      maxRequestPromptChars?: number;
+      maxLiveOutputTokens?: number;
+    };
   };
   auth: {
     accessTokenTtl: string;
@@ -118,6 +124,13 @@ const defaultOrchestrationConfig = {
   retryBackoffMs: 200
 };
 
+const defaultSafetyConfig = {
+  maxExpertsPerPanel: 4,
+  maxUserPromptChars: 4000,
+  maxRequestPromptChars: 16000,
+  maxLiveOutputTokens: 300
+};
+
 function resolveModelFromEnv(modelOverride: string | undefined): string {
   /**
    * Purpose: Resolves active model selection while enforcing pinning rule.
@@ -193,8 +206,54 @@ export const appConfig = {
           defaultOrchestrationConfig.retryBackoffMs
       )
     )
+  ),
+  llmMaxExpertsPerPanel: Math.max(
+    1,
+    Math.floor(
+      parseNumber(
+        process.env.LLM_MAX_EXPERTS_PER_PANEL,
+        fileConfig.llm.safety?.maxExpertsPerPanel ??
+          defaultSafetyConfig.maxExpertsPerPanel
+      )
+    )
+  ),
+  llmMaxUserPromptChars: Math.max(
+    100,
+    Math.floor(
+      parseNumber(
+        process.env.LLM_MAX_USER_PROMPT_CHARS,
+        fileConfig.llm.safety?.maxUserPromptChars ??
+          defaultSafetyConfig.maxUserPromptChars
+      )
+    )
+  ),
+  llmMaxRequestPromptChars: Math.max(
+    500,
+    Math.floor(
+      parseNumber(
+        process.env.LLM_MAX_REQUEST_PROMPT_CHARS,
+        fileConfig.llm.safety?.maxRequestPromptChars ??
+          defaultSafetyConfig.maxRequestPromptChars
+      )
+    )
+  ),
+  llmMaxLiveOutputTokens: Math.max(
+    1,
+    Math.floor(
+      parseNumber(
+        process.env.LLM_MAX_LIVE_OUTPUT_TOKENS,
+        fileConfig.llm.safety?.maxLiveOutputTokens ??
+          defaultSafetyConfig.maxLiveOutputTokens
+      )
+    )
   )
 } as const;
+
+if (appConfig.llmMaxRequestPromptChars < appConfig.llmMaxUserPromptChars) {
+  throw new Error(
+    "LLM_MAX_REQUEST_PROMPT_CHARS must be greater than or equal to LLM_MAX_USER_PROMPT_CHARS."
+  );
+}
 
 export function ensurePinnedModel(modelOverride?: string): string {
   /**

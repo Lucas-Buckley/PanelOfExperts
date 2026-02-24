@@ -53,4 +53,28 @@ describe("app config", () => {
     expect(mod.appConfig.llmHistoryPromptFetchLimit).toBe(40);
     expect(mod.appConfig.llmHistoryCharBudget).toBe(15000);
   });
+
+  it("loads safety caps and allows env overrides", async () => {
+    process.env.OPENAI_MODEL = "gpt-5-nano-2025-08-07";
+    process.env.LLM_MAX_EXPERTS_PER_PANEL = "3";
+    process.env.LLM_MAX_USER_PROMPT_CHARS = "2500";
+    process.env.LLM_MAX_REQUEST_PROMPT_CHARS = "9000";
+    process.env.LLM_MAX_LIVE_OUTPUT_TOKENS = "250";
+
+    const mod = await importFreshConfigModule();
+    expect(mod.appConfig.llmMaxExpertsPerPanel).toBe(3);
+    expect(mod.appConfig.llmMaxUserPromptChars).toBe(2500);
+    expect(mod.appConfig.llmMaxRequestPromptChars).toBe(9000);
+    expect(mod.appConfig.llmMaxLiveOutputTokens).toBe(250);
+  });
+
+  it("rejects config when request prompt cap is lower than user prompt cap", async () => {
+    process.env.OPENAI_MODEL = "gpt-5-nano-2025-08-07";
+    process.env.LLM_MAX_USER_PROMPT_CHARS = "5000";
+    process.env.LLM_MAX_REQUEST_PROMPT_CHARS = "4000";
+
+    await expect(importFreshConfigModule()).rejects.toThrow(
+      "LLM_MAX_REQUEST_PROMPT_CHARS must be greater than or equal to LLM_MAX_USER_PROMPT_CHARS"
+    );
+  });
 });

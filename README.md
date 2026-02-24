@@ -16,3 +16,21 @@ For protected preview deployments, set:
 ```bash
 export VERCEL_BYPASS_TOKEN="your-rotated-bypass-token"
 ```
+
+## Cost And Safety Guardrails
+
+Verify guardrails before release:
+
+```bash
+npm run safety:verify
+```
+
+Key emergency toggles:
+
+```bash
+# Soft fallback (keep app functional with zero API spend)
+LLM_MODE="simulated"
+
+# Hard stop (disable all LLM calls)
+LLM_ENABLED="false"
+```

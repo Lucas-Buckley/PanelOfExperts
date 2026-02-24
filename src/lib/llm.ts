@@ -57,6 +57,11 @@ export async function generateResponse(input: GenerateInput): Promise<LlmRespons
   if (!appConfig.llmEnabled) {
     throw new Error("LLM is disabled by LLM_ENABLED=false.");
   }
+  if (input.prompt.length > appConfig.llmMaxRequestPromptChars) {
+    throw new Error(
+      `LLM prompt exceeds max request size of ${appConfig.llmMaxRequestPromptChars} characters.`
+    );
+  }
 
   const mode = getMode();
   const model = ensurePinnedModel(input.model);
@@ -93,7 +98,8 @@ export async function generateResponse(input: GenerateInput): Promise<LlmRespons
   const client = new OpenAI({ apiKey });
   const response = await client.responses.create({
     model,
-    input: input.prompt
+    input: input.prompt,
+    max_output_tokens: appConfig.llmMaxLiveOutputTokens
   });
 
   const usage = response.usage;

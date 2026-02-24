@@ -11,7 +11,7 @@ import { markPromptActivity } from "../repositories/activityOrdering";
 import { runPanel, type PanelRunnerHistoryPromptInput } from "./panelRunner";
 
 const createPromptSchema = z.object({
-  content: z.string().trim().min(1)
+  content: z.string().trim().min(1).max(appConfig.llmMaxUserPromptChars)
 });
 
 type CreatePromptInput = z.infer<typeof createPromptSchema>;

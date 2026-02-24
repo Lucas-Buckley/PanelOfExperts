@@ -6,6 +6,7 @@
 import { z } from "zod";
 
 import { prisma } from "../../lib/db";
+import { appConfig } from "../../config/appConfig";
 import { DB_FIELD_LIMITS } from "../contracts/dbFieldLimits";
 
 const createExpertSchema = z.object({
@@ -18,7 +19,7 @@ const createPanelSchema = z.object({
   name: z.string().trim().min(1).max(DB_FIELD_LIMITS.panel.name),
   description: z.string().trim().max(DB_FIELD_LIMITS.panel.description).nullable().optional(),
   instructions: z.string().trim().nullable().optional(),
-  experts: z.array(createExpertSchema).min(1)
+  experts: z.array(createExpertSchema).min(1).max(appConfig.llmMaxExpertsPerPanel)
 });
 
 type CreatePanelInput = z.infer<typeof createPanelSchema>;

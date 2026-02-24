@@ -13,6 +13,12 @@
       "historyCharBudget": 12000,
       "retryAttemptsPerExpert": 1,
       "retryBackoffMs": 200
+    },
+    "safety": {
+      "maxExpertsPerPanel": 4,
+      "maxUserPromptChars": 4000,
+      "maxRequestPromptChars": 16000,
+      "maxLiveOutputTokens": 300
     }
   },
   "auth": {

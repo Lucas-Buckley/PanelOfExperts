@@ -15,10 +15,11 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
     "db:studio": "prisma studio",
+    "safety:verify": "node scripts/verify-safety-guardrails.mjs",
     "smoke:deploy": "node scripts/run-deployment-smoke.mjs",
     "smoke:deploy:simulated": "SMOKE_EXPECT_MODE=simulated node scripts/run-deployment-smoke.mjs",
     "smoke:deploy:live": "SMOKE_EXPECT_MODE=live node scripts/run-deployment-smoke.mjs",
-    "release:verify": "npm run test:unit && npm run lint && npm run typecheck && npm run build"
+    "release:verify": "npm run test:unit && npm run lint && npm run typecheck && npm run safety:verify && npm run build"
   },
   "dependencies": {
     "@prisma/client": "^6.16.2",
