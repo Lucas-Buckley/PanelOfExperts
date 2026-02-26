@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * Purpose: Renders the Step 8 MVP UI for auth, panel selection, conversation view, and prompt submission.
+ * Purpose: Renders the main app UI for authentication, panel management, conversations, and prompt submission.
  * Inputs: None.
  * Outputs: Interactive client page for running end-to-end prompt flows.
  */
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { formatTimestamp, sortConversation } from "./pageHelpers";
 
 type AccountIdentity = {
@@ -86,12 +86,31 @@ type ApiErrorShape = {
 };
 
 type ExpertDraft = {
+  id: string;
   name: string;
   specialization: string;
   soul: string;
 };
 
 const AUTH_STORAGE_KEY = "poe-auth";
+const INVALID_ACCESS_TOKEN_MESSAGE = "Invalid or expired access token.";
+let expertDraftCounter = 0;
+
+function createExpertDraft(): ExpertDraft {
+  /**
+   * Purpose: Creates one expert draft row with a stable client-side id for React keying.
+   * Inputs: None.
+   * Outputs: Blank expert draft object with deterministic incremental id.
+   */
+  expertDraftCounter += 1;
+
+  return {
+    id: `draft-${expertDraftCounter}`,
+    name: "",
+    specialization: "",
+    soul: ""
+  };
+}
 
 async function requestJson<T>(args: {
   path: string;
@@ -188,9 +207,7 @@ export default function HomePage() {
   const [newPanelName, setNewPanelName] = useState("");
   const [newPanelDescription, setNewPanelDescription] = useState("");
   const [newPanelInstructions, setNewPanelInstructions] = useState("");
-  const [expertDrafts, setExpertDrafts] = useState<ExpertDraft[]>([
-    { name: "", specialization: "", soul: "" }
-  ]);
+  const [expertDrafts, setExpertDrafts] = useState<ExpertDraft[]>([createExpertDraft()]);
 
   const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
   const [newConversationName, setNewConversationName] = useState("");
@@ -200,6 +217,37 @@ export default function HomePage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+
+  const clearSessionForExpiredToken = useCallback((message: string): void => {
+    /**
+     * Purpose: Clears all authenticated client state and returns UI to login mode after token expiry.
+     * Inputs: User-facing auth-expiry error message.
+     * Outputs: No return value; resets session state and persists signed-out storage state.
+     */
+    setAuth(null);
+    setPanels([]);
+    setActivePanel(null);
+    setActiveConversation(null);
+    setPromptInput("");
+    writeStoredAuth(null);
+    setStatusMessage("");
+    setErrorMessage(message);
+  }, []);
+
+  const handleApiError = useCallback((error: unknown, fallbackMessage: string): void => {
+    /**
+     * Purpose: Normalizes request errors and enforces token-expiry logout behavior.
+     * Inputs: Unknown thrown error and fallback message.
+     * Outputs: No return value; updates error/session state.
+     */
+    const message = error instanceof Error ? error.message : fallbackMessage;
+    if (message === INVALID_ACCESS_TOKEN_MESSAGE) {
+      clearSessionForExpiredToken(message);
+      return;
+    }
+
+    setErrorMessage(message);
+  }, [clearSessionForExpiredToken]);
 
   const expertNameById = useMemo(() => {
     /**
@@ -256,10 +304,9 @@ export default function HomePage() {
 
     setAuth(stored);
     void loadPanels(stored.accessToken).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : "Failed to load panels.";
-      setErrorMessage(message);
+      handleApiError(error, "Failed to load panels.");
     });
-  }, []);
+  }, [handleApiError]);
 
   async function handleAuth(mode: "register" | "login", event: FormEvent<HTMLFormElement>) {
     /**
@@ -288,8 +335,7 @@ export default function HomePage() {
       setStatusMessage(mode === "register" ? "Account created and signed in." : "Signed in.");
       setPassword("");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Auth request failed.";
-      setErrorMessage(message);
+      handleApiError(error, "Auth request failed.");
     } finally {
       setIsBusy(false);
     }
@@ -334,8 +380,7 @@ export default function HomePage() {
       setActiveConversation(null);
       setStatusMessage(`Selected panel: ${panel.name}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load panel.";
-      setErrorMessage(message);
+      handleApiError(error, "Failed to load panel.");
     } finally {
       setIsBusy(false);
     }
@@ -343,7 +388,7 @@ export default function HomePage() {
 
   function handleExpertDraftChange(
     index: number,
-    key: keyof ExpertDraft,
+    key: "name" | "specialization" | "soul",
     value: string
   ): void {
     /**
@@ -364,7 +409,7 @@ export default function HomePage() {
      * Inputs: None.
      * Outputs: No return value; updates expert draft list state.
      */
-    setExpertDrafts((current) => [...current, { name: "", specialization: "", soul: "" }]);
+    setExpertDrafts((current) => [...current, createExpertDraft()]);
   }
 
   function removeExpertDraft(index: number): void {
@@ -405,7 +450,11 @@ export default function HomePage() {
           name: newPanelName,
           description: newPanelDescription.length > 0 ? newPanelDescription : null,
           instructions: newPanelInstructions.length > 0 ? newPanelInstructions : null,
-          experts: expertDrafts
+          experts: expertDrafts.map((expert) => ({
+            name: expert.name,
+            specialization: expert.specialization,
+            soul: expert.soul
+          }))
         }
       });
 
@@ -415,11 +464,10 @@ export default function HomePage() {
       setNewPanelName("");
       setNewPanelDescription("");
       setNewPanelInstructions("");
-      setExpertDrafts([{ name: "", specialization: "", soul: "" }]);
+      setExpertDrafts([createExpertDraft()]);
       setStatusMessage(`Created panel: ${created.name}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to create panel.";
-      setErrorMessage(message);
+      handleApiError(error, "Failed to create panel.");
     } finally {
       setIsBusy(false);
     }
@@ -453,9 +501,7 @@ export default function HomePage() {
       setNewConversationName("");
       setStatusMessage(`Opened conversation: ${created.name}`);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to create conversation.";
-      setErrorMessage(message);
+      handleApiError(error, "Failed to create conversation.");
     } finally {
       setIsBusy(false);
     }
@@ -491,8 +537,7 @@ export default function HomePage() {
       setActiveConversation(sortConversation(conversation));
       setStatusMessage(`Loaded conversation #${conversation.id}.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load conversation.";
-      setErrorMessage(message);
+      handleApiError(error, "Failed to load conversation.");
     } finally {
       setIsBusy(false);
     }
@@ -544,8 +589,7 @@ export default function HomePage() {
       setStatusMessage("Prompt submitted.");
       await loadPanels(auth.accessToken);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to submit prompt.";
-      setErrorMessage(message);
+      handleApiError(error, "Failed to submit prompt.");
     } finally {
       setIsBusy(false);
     }
@@ -555,7 +599,6 @@ export default function HomePage() {
     <main className="page">
       <section className="hero">
         <h1>Panel of Experts</h1>
-        <p>Step 8 MVP UI: auth, panel selection, conversation view, and prompt loop.</p>
       </section>
 
       <section className="card">
@@ -689,7 +732,7 @@ export default function HomePage() {
 
                 <h4>Experts</h4>
                 {expertDrafts.map((expert, index) => (
-                  <fieldset key={`${index}-${expert.name}-${expert.specialization}`}>
+                  <fieldset key={expert.id}>
                     <legend>Expert {index + 1}</legend>
                     <label>
                       Name

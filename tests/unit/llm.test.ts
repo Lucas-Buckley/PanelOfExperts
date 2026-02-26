@@ -15,6 +15,7 @@ async function importFreshLlmModule() {
 afterEach(() => {
   process.env = { ...originalEnv };
   vi.restoreAllMocks();
+  vi.doUnmock("openai");
 });
 
 describe("llm provider", () => {
@@ -114,5 +115,61 @@ describe("llm provider", () => {
     });
 
     expect(extracted).toBe("");
+  });
+
+  it("retries live generation once when no text is returned due to max_output_tokens", async () => {
+    process.env.OPENAI_MODEL = "gpt-5-nano-2025-08-07";
+    process.env.LLM_MODE = "live";
+    process.env.LLM_ENABLED = "true";
+    process.env.OPENAI_API_KEY = "test-key";
+
+    const createMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: "resp_first",
+        output_text: "",
+        incomplete_details: { reason: "max_output_tokens" },
+        usage: {
+          input_tokens: 40,
+          output_tokens: 300,
+          total_tokens: 340
+        }
+      })
+      .mockResolvedValueOnce({
+        id: "resp_second",
+        output_text: "Recovered response text.",
+        usage: {
+          input_tokens: 30,
+          output_tokens: 60,
+          total_tokens: 90
+        }
+      });
+
+    vi.doMock("openai", () => ({
+      default: class OpenAI {
+        responses = {
+          create: createMock
+        };
+      }
+    }));
+
+    const { generateResponse } = await importFreshLlmModule();
+    const result = await generateResponse({ prompt: "Explain the trolley problem." });
+
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(createMock.mock.calls[0]?.[0]).toMatchObject({
+      reasoning: { effort: "minimal" },
+      text: { verbosity: "low" }
+    });
+    expect(createMock.mock.calls[1]?.[0].input).toContain(
+      "Output length requirement for this retry:"
+    );
+    expect(result.request_id).toBe("resp_second");
+    expect(result.content).toBe("Recovered response text.");
+    expect(result.usage).toEqual({
+      input_tokens: 70,
+      output_tokens: 360,
+      total_tokens: 430
+    });
   });
 });

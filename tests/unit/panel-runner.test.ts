@@ -149,6 +149,8 @@ describe("panel runner", () => {
     expect(seenPrompts[0]).toContain("No other experts in this panel.");
     expect(seenPrompts[0]).not.toContain("Conversation context from recent history:");
     expect(seenPrompts[0]).not.toContain("Prior expert outputs from this same turn:");
+    expect(seenPrompts[0]).toContain("Length limit:");
+    expect(seenPrompts[0]).toContain("Keep your answer under 120 words.");
   });
 
   it("follow-up prompts include prior conversation context", async () => {
@@ -194,6 +196,8 @@ describe("panel runner", () => {
     expect(seenPrompts[0]).toContain("How should we launch this?");
     expect(seenPrompts[0]).toContain("Start with a narrow ICP.");
     expect(seenPrompts[0]).toContain("Avoid repeating prior experts verbatim; add a complementary angle from your specialization.");
+    expect(seenPrompts[0]).toContain("Length limit:");
+    expect(seenPrompts[0]).toContain("Use at most 5 bullet points when bullet points help.");
   });
 
   it("later experts receive prior same-turn outputs", async () => {

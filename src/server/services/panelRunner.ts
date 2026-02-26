@@ -187,7 +187,10 @@ function composePromptForExpert(args: {
       args.promptContent,
       "",
       "Respond as this expert with concise, concrete reasoning.",
-      "Focus on a distinctive angle from your specialization."
+      "Focus on a distinctive angle from your specialization.",
+      "Length limit:",
+      "- Keep your answer under 120 words.",
+      "- Use at most 5 bullet points when bullet points help."
     ].join("\n\n");
   }
 
@@ -206,7 +209,10 @@ function composePromptForExpert(args: {
     formatCurrentTurnOutputs(args.priorCurrentTurnOutputs),
     "",
     "Respond as this expert while considering both context and prior expert outputs.",
-    "Avoid repeating prior experts verbatim; add a complementary angle from your specialization."
+    "Avoid repeating prior experts verbatim; add a complementary angle from your specialization.",
+    "Length limit:",
+    "- Keep your answer under 120 words.",
+    "- Use at most 5 bullet points when bullet points help."
   ].join("\n\n");
 }
 

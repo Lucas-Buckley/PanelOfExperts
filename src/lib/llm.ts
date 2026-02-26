@@ -27,8 +27,17 @@ export type GenerateInput = {
 };
 
 type LiveResponseLike = {
+  id?: unknown;
   output_text?: unknown;
   output?: unknown;
+  usage?: {
+    input_tokens?: unknown;
+    output_tokens?: unknown;
+    total_tokens?: unknown;
+  } | null;
+  incomplete_details?: {
+    reason?: unknown;
+  } | null;
 };
 
 function randomInt(min: number, max: number): number {
@@ -117,6 +126,85 @@ export function extractLiveResponseContent(response: LiveResponseLike): string {
   return messageTexts.join("\n\n").trim();
 }
 
+function extractLiveIncompleteReason(response: LiveResponseLike): string | null {
+  /**
+   * Purpose: Reads provider incomplete reason when live response ends before output text is produced.
+   * Inputs: Live response-like object returned by OpenAI SDK.
+   * Outputs: Incomplete reason string (for example `max_output_tokens`) or `null`.
+   */
+  if (typeof response !== "object" || response === null) {
+    return null;
+  }
+
+  if (
+    !response.incomplete_details ||
+    typeof response.incomplete_details !== "object" ||
+    typeof response.incomplete_details.reason !== "string"
+  ) {
+    return null;
+  }
+
+  const reason = response.incomplete_details.reason.trim();
+  return reason.length > 0 ? reason : null;
+}
+
+function buildTokenCapRetryPrompt(prompt: string): string {
+  /**
+   * Purpose: Adds explicit brevity constraints for retrying live calls that hit output-token limits.
+   * Inputs: Original composed prompt.
+   * Outputs: Retry prompt with strict response-length guidance appended.
+   */
+  return [
+    prompt.trimEnd(),
+    "",
+    "Output length requirement for this retry:",
+    "- Return only the final answer.",
+    "- Keep the answer under 120 words.",
+    "- Use at most 5 bullet points when bullet points help.",
+    "- Do not include extra preamble."
+  ].join("\n");
+}
+
+function readLiveUsage(response: LiveResponseLike): LlmUsage {
+  /**
+   * Purpose: Normalizes live response usage into numeric token counters.
+   * Inputs: Live response-like object with optional usage fields.
+   * Outputs: Token usage object with non-negative integer values.
+   */
+  const usage = response.usage;
+  const inputTokens =
+    typeof usage?.input_tokens === "number" && Number.isFinite(usage.input_tokens)
+      ? Math.max(0, Math.floor(usage.input_tokens))
+      : 0;
+  const outputTokens =
+    typeof usage?.output_tokens === "number" && Number.isFinite(usage.output_tokens)
+      ? Math.max(0, Math.floor(usage.output_tokens))
+      : 0;
+  const totalTokens =
+    typeof usage?.total_tokens === "number" && Number.isFinite(usage.total_tokens)
+      ? Math.max(0, Math.floor(usage.total_tokens))
+      : inputTokens + outputTokens;
+
+  return {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_tokens: totalTokens
+  };
+}
+
+function mergeUsage(left: LlmUsage, right: LlmUsage): LlmUsage {
+  /**
+   * Purpose: Sums token usage from two provider calls into one aggregate usage object.
+   * Inputs: Left and right usage objects.
+   * Outputs: Combined token usage totals.
+   */
+  return {
+    input_tokens: left.input_tokens + right.input_tokens,
+    output_tokens: left.output_tokens + right.output_tokens,
+    total_tokens: left.total_tokens + right.total_tokens
+  };
+}
+
 function buildLiveFallbackContent(model: string, response: LiveResponseLike): string {
   /**
    * Purpose: Builds a non-empty fallback message when live provider returns no text.
@@ -199,27 +287,47 @@ export async function generateResponse(input: GenerateInput): Promise<LlmRespons
   }
 
   const client = new OpenAI({ apiKey });
-  const response = await client.responses.create({
+  const liveRequestBase = {
     model,
-    input: input.prompt,
-    max_output_tokens: appConfig.llmMaxLiveOutputTokens
+    max_output_tokens: appConfig.llmMaxLiveOutputTokens,
+    reasoning: { effort: "minimal" as const },
+    text: { verbosity: "low" as const }
+  };
+  const firstResponse = await client.responses.create({
+    ...liveRequestBase,
+    input: input.prompt
   });
-  const extractedContent = extractLiveResponseContent(response);
+
+  let finalResponse = firstResponse;
+  let extractedContent = extractLiveResponseContent(finalResponse);
+  const shouldRetryForTokenCap =
+    extractedContent.length === 0 &&
+    extractLiveIncompleteReason(finalResponse) === "max_output_tokens";
+
+  if (shouldRetryForTokenCap) {
+    finalResponse = await client.responses.create({
+      ...liveRequestBase,
+      input: buildTokenCapRetryPrompt(input.prompt)
+    });
+    extractedContent = extractLiveResponseContent(finalResponse);
+  }
+
   const content =
     extractedContent.length > 0
       ? extractedContent
-      : buildLiveFallbackContent(model, response);
+      : buildLiveFallbackContent(model, finalResponse);
 
-  const usage = response.usage;
+  const usage = shouldRetryForTokenCap
+    ? mergeUsage(readLiveUsage(firstResponse), readLiveUsage(finalResponse))
+    : readLiveUsage(finalResponse);
 
   return {
-    request_id: response.id,
+    request_id:
+      typeof finalResponse.id === "string" && finalResponse.id.length > 0
+        ? finalResponse.id
+        : "resp_live_unknown",
     content,
-    usage: {
-      input_tokens: usage?.input_tokens ?? 0,
-      output_tokens: usage?.output_tokens ?? 0,
-      total_tokens: usage?.total_tokens ?? 0
-    },
+    usage,
     latency_ms: Date.now() - start
   };
 }
