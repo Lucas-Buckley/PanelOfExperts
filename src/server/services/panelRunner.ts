@@ -3,7 +3,7 @@
  * Inputs: Conversation/panel identifiers + panel name, prompt content, panel instructions, prior conversation context, and expert definitions.
  * Outputs: Deterministic per-expert LLM responses mapped by expert id and execution order.
  */
-import { generateResponse } from "../../lib/llm";
+import { generateResponse, type LlmUsage } from "../../lib/llm";
 import { appConfig } from "../../config/appConfig";
 
 export type PanelRunnerExpertInput = {
@@ -47,7 +47,71 @@ export type PanelRunnerResponse = {
 export type PanelRunnerResult = {
   mode: "executed";
   responses: PanelRunnerResponse[];
+  usage: LlmUsage;
 };
+
+function createZeroUsage(): LlmUsage {
+  /**
+   * Purpose: Provides a reusable zero-value usage object for aggregation.
+   * Inputs: None.
+   * Outputs: Usage object initialized with all token counters at zero.
+   */
+  return {
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0
+  };
+}
+
+function addUsage(left: LlmUsage, right: LlmUsage): LlmUsage {
+  /**
+   * Purpose: Sums two usage objects into one aggregate usage value.
+   * Inputs: Left and right token usage counters.
+   * Outputs: Combined usage totals.
+   */
+  return {
+    input_tokens: left.input_tokens + right.input_tokens,
+    output_tokens: left.output_tokens + right.output_tokens,
+    total_tokens: left.total_tokens + right.total_tokens
+  };
+}
+
+function estimateMaxTokensPerExpertCall(): number {
+  /**
+   * Purpose: Computes a conservative per-expert token ceiling for preflight daily-cap checks.
+   * Inputs: None.
+   * Outputs: Upper-bound token estimate for one expert call.
+   */
+  const conservativePromptCharBudget =
+    appConfig.llmHistoryCharBudget + appConfig.llmMaxUserPromptChars + 4000;
+  const conservativeInputTokenCeiling = Math.ceil(conservativePromptCharBudget / 2);
+  return conservativeInputTokenCeiling + appConfig.llmMaxLiveOutputTokens;
+}
+
+function buildTokenLengthGuidanceLines(): string[] {
+  /**
+   * Purpose: Produces prompt guidance lines that target token-based brevity.
+   * Inputs: None.
+   * Outputs: Ordered guidance lines for prompt composition.
+   */
+  const targetTokens = Math.max(40, Math.floor(appConfig.llmMaxLiveOutputTokens * 0.7));
+  return [
+    "Length target:",
+    `- Aim for about ${targetTokens} tokens or less.`,
+    "- Keep it concise to reduce truncation risk.",
+    "- Use at most 5 bullet points when bullet points help."
+  ];
+}
+
+export function estimatePanelMaxTokens(expertCount: number): number {
+  /**
+   * Purpose: Estimates worst-case token usage for one panel run across all experts.
+   * Inputs: Number of experts that will be invoked for the panel.
+   * Outputs: Conservative total token estimate used for daily-cap prechecks.
+   */
+  const safeExpertCount = Math.max(0, Math.floor(expertCount));
+  return safeExpertCount * estimateMaxTokensPerExpertCall();
+}
 
 function buildSoulSection(
   expert: PanelRunnerExpertInput,
@@ -188,9 +252,7 @@ function composePromptForExpert(args: {
       "",
       "Respond as this expert with concise, concrete reasoning.",
       "Focus on a distinctive angle from your specialization.",
-      "Length limit:",
-      "- Keep your answer under 120 words.",
-      "- Use at most 5 bullet points when bullet points help."
+      ...buildTokenLengthGuidanceLines()
     ].join("\n\n");
   }
 
@@ -210,9 +272,7 @@ function composePromptForExpert(args: {
     "",
     "Respond as this expert while considering both context and prior expert outputs.",
     "Avoid repeating prior experts verbatim; add a complementary angle from your specialization.",
-    "Length limit:",
-    "- Keep your answer under 120 words.",
-    "- Use at most 5 bullet points when bullet points help."
+    ...buildTokenLengthGuidanceLines()
   ].join("\n\n");
 }
 
@@ -301,6 +361,7 @@ export async function runPanel(input: PanelRunnerInput): Promise<PanelRunnerResu
     (left, right) => left.position - right.position || left.id - right.id
   );
   const responses: PanelRunnerResponse[] = [];
+  let usage = createZeroUsage();
 
   for (const [index, expert] of orderedExperts.entries()) {
     const composedPrompt = composePromptForExpert({
@@ -314,6 +375,7 @@ export async function runPanel(input: PanelRunnerInput): Promise<PanelRunnerResu
       isFirstExpertInTurn: index === 0
     });
     const llmResponse = await generateWithRetry(composedPrompt);
+    usage = addUsage(usage, llmResponse.usage);
 
     responses.push({
       expertId: expert.id,
@@ -325,6 +387,7 @@ export async function runPanel(input: PanelRunnerInput): Promise<PanelRunnerResu
 
   return {
     mode: "executed",
-    responses
+    responses,
+    usage
   };
 }

@@ -149,8 +149,8 @@ describe("panel runner", () => {
     expect(seenPrompts[0]).toContain("No other experts in this panel.");
     expect(seenPrompts[0]).not.toContain("Conversation context from recent history:");
     expect(seenPrompts[0]).not.toContain("Prior expert outputs from this same turn:");
-    expect(seenPrompts[0]).toContain("Length limit:");
-    expect(seenPrompts[0]).toContain("Keep your answer under 120 words.");
+    expect(seenPrompts[0]).toContain("Length target:");
+    expect(seenPrompts[0]).toContain("Aim for about 210 tokens or less.");
   });
 
   it("follow-up prompts include prior conversation context", async () => {
@@ -196,7 +196,7 @@ describe("panel runner", () => {
     expect(seenPrompts[0]).toContain("How should we launch this?");
     expect(seenPrompts[0]).toContain("Start with a narrow ICP.");
     expect(seenPrompts[0]).toContain("Avoid repeating prior experts verbatim; add a complementary angle from your specialization.");
-    expect(seenPrompts[0]).toContain("Length limit:");
+    expect(seenPrompts[0]).toContain("Length target:");
     expect(seenPrompts[0]).toContain("Use at most 5 bullet points when bullet points help.");
   });
 
@@ -284,6 +284,11 @@ describe("panel runner", () => {
     expect(seenExpertNames).toEqual(["A", "C", "B"]);
     expect(result.responses.map((response) => response.expertId)).toEqual([5, 3, 11]);
     expect(result.responses.map((response) => response.sequence)).toEqual([1, 2, 3]);
+    expect(result.usage).toEqual({
+      input_tokens: 30,
+      output_tokens: 60,
+      total_tokens: 90
+    });
   });
 
   it("passes the same runner checks in both simulated and live modes with mocked llm", async () => {

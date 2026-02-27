@@ -67,6 +67,9 @@ model Prompt {
   conversationId Int          @map("conversation_id")
   sequence       Int
   content        String       @db.Text
+  llmInputTokens Int          @default(0) @map("llm_input_tokens")
+  llmOutputTokens Int         @default(0) @map("llm_output_tokens")
+  llmTotalTokens Int          @default(0) @map("llm_total_tokens")
   createdAt      DateTime     @default(now()) @map("created_at")
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   responses      Response[]
@@ -75,6 +78,17 @@ model Prompt {
   @@index([createdAt])
   @@unique([conversationId, sequence])
   @@map("prompt")
+}
+
+model LlmUsageDaily {
+  usageDate  DateTime @map("usage_date") @db.Date
+  model      String   @db.VarChar(255)
+  usedTokens Int      @default(0) @map("used_tokens")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@id([usageDate, model])
+  @@map("llm_usage_daily")
 }
 
 model Response {

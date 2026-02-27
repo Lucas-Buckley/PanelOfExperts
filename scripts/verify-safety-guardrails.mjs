@@ -12,8 +12,8 @@ const REQUIRED_PINNED_MODEL = "gpt-5-nano-2025-08-07";
 const MAX_ALLOWED = {
   maxExpertsPerPanel: 8,
   maxUserPromptChars: 8000,
-  maxRequestPromptChars: 24000,
   maxLiveOutputTokens: 600,
+  maxDailyTokens: 2500000,
   historyCharBudget: 20000,
   retryAttemptsPerExpert: 3
 };
@@ -74,8 +74,8 @@ function validateConfigShape(config, errors) {
 
   const maxExpertsPerPanel = toNumber(safety.maxExpertsPerPanel, NaN);
   const maxUserPromptChars = toNumber(safety.maxUserPromptChars, NaN);
-  const maxRequestPromptChars = toNumber(safety.maxRequestPromptChars, NaN);
   const maxLiveOutputTokens = toNumber(safety.maxLiveOutputTokens, NaN);
+  const maxDailyTokens = toNumber(safety.maxDailyTokens, NaN);
   const historyCharBudget = toNumber(orchestration.historyCharBudget, NaN);
   const retryAttemptsPerExpert = toNumber(orchestration.retryAttemptsPerExpert, NaN);
 
@@ -104,23 +104,6 @@ function validateConfigShape(config, errors) {
   );
 
   assertCondition(
-    Number.isInteger(maxRequestPromptChars) && maxRequestPromptChars >= 500,
-    "llm.safety.maxRequestPromptChars must be an integer >= 500.",
-    errors
-  );
-  assertCondition(
-    Number.isInteger(maxRequestPromptChars) &&
-      maxRequestPromptChars <= MAX_ALLOWED.maxRequestPromptChars,
-    `llm.safety.maxRequestPromptChars must be <= ${MAX_ALLOWED.maxRequestPromptChars}.`,
-    errors
-  );
-  assertCondition(
-    maxRequestPromptChars >= maxUserPromptChars,
-    "llm.safety.maxRequestPromptChars must be >= llm.safety.maxUserPromptChars.",
-    errors
-  );
-
-  assertCondition(
     Number.isInteger(maxLiveOutputTokens) && maxLiveOutputTokens >= 1,
     "llm.safety.maxLiveOutputTokens must be an integer >= 1.",
     errors
@@ -129,6 +112,18 @@ function validateConfigShape(config, errors) {
     Number.isInteger(maxLiveOutputTokens) &&
       maxLiveOutputTokens <= MAX_ALLOWED.maxLiveOutputTokens,
     `llm.safety.maxLiveOutputTokens must be <= ${MAX_ALLOWED.maxLiveOutputTokens}.`,
+    errors
+  );
+
+  assertCondition(
+    Number.isInteger(maxDailyTokens) && maxDailyTokens >= 1,
+    "llm.safety.maxDailyTokens must be an integer >= 1.",
+    errors
+  );
+  assertCondition(
+    Number.isInteger(maxDailyTokens) &&
+      maxDailyTokens <= MAX_ALLOWED.maxDailyTokens,
+    `llm.safety.maxDailyTokens must be <= ${MAX_ALLOWED.maxDailyTokens}.`,
     errors
   );
 

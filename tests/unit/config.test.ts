@@ -58,23 +58,13 @@ describe("app config", () => {
     process.env.OPENAI_MODEL = "gpt-5-nano-2025-08-07";
     process.env.LLM_MAX_EXPERTS_PER_PANEL = "3";
     process.env.LLM_MAX_USER_PROMPT_CHARS = "2500";
-    process.env.LLM_MAX_REQUEST_PROMPT_CHARS = "9000";
     process.env.LLM_MAX_LIVE_OUTPUT_TOKENS = "250";
+    process.env.LLM_MAX_DAILY_TOKENS = "2500000";
 
     const mod = await importFreshConfigModule();
     expect(mod.appConfig.llmMaxExpertsPerPanel).toBe(3);
     expect(mod.appConfig.llmMaxUserPromptChars).toBe(2500);
-    expect(mod.appConfig.llmMaxRequestPromptChars).toBe(9000);
     expect(mod.appConfig.llmMaxLiveOutputTokens).toBe(250);
-  });
-
-  it("rejects config when request prompt cap is lower than user prompt cap", async () => {
-    process.env.OPENAI_MODEL = "gpt-5-nano-2025-08-07";
-    process.env.LLM_MAX_USER_PROMPT_CHARS = "5000";
-    process.env.LLM_MAX_REQUEST_PROMPT_CHARS = "4000";
-
-    await expect(importFreshConfigModule()).rejects.toThrow(
-      "LLM_MAX_REQUEST_PROMPT_CHARS must be greater than or equal to LLM_MAX_USER_PROMPT_CHARS"
-    );
+    expect(mod.appConfig.llmMaxDailyTokens).toBe(2500000);
   });
 });

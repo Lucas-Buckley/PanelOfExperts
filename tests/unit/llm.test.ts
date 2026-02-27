@@ -64,21 +64,6 @@ describe("llm provider", () => {
     );
   });
 
-  it("fails when request prompt exceeds configured max chars", async () => {
-    process.env.OPENAI_MODEL = "gpt-5-nano-2025-08-07";
-    process.env.LLM_MODE = "simulated";
-    process.env.LLM_ENABLED = "true";
-    process.env.LLM_MAX_REQUEST_PROMPT_CHARS = "500";
-    process.env.LLM_MAX_USER_PROMPT_CHARS = "500";
-
-    const { generateResponse } = await importFreshLlmModule();
-    const oversizedPrompt = "x".repeat(501);
-
-    await expect(generateResponse({ prompt: oversizedPrompt })).rejects.toThrow(
-      "LLM prompt exceeds max request size"
-    );
-  });
-
   it("extracts live text from response output message parts when output_text is empty", async () => {
     process.env.OPENAI_MODEL = "gpt-5-nano-2025-08-07";
     process.env.LLM_MODE = "simulated";

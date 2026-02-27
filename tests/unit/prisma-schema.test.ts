@@ -8,7 +8,15 @@ const schema = fs.readFileSync(schemaPath, "utf8");
 
 describe("prisma schema", () => {
   it("defines all core models", () => {
-    for (const model of ["Account", "Panel", "Expert", "Conversation", "Prompt", "Response"]) {
+    for (const model of [
+      "Account",
+      "Panel",
+      "Expert",
+      "Conversation",
+      "Prompt",
+      "Response",
+      "LlmUsageDaily"
+    ]) {
       expect(schema).toContain(`model ${model} {`);
     }
   });
@@ -34,7 +42,15 @@ describe("prisma schema", () => {
   });
 
   it("maps tables to ERD table names", () => {
-    for (const table of ["account", "panel", "expert", "conversation", "prompt", "response"]) {
+    for (const table of [
+      "account",
+      "panel",
+      "expert",
+      "conversation",
+      "prompt",
+      "response",
+      "llm_usage_daily"
+    ]) {
       expect(schema).toContain(`@@map("${table}")`);
     }
   });
@@ -68,5 +84,14 @@ describe("prisma schema", () => {
     expect(schema).toContain('lastPromptedAt DateTime? @map("last_prompted_at")');
     const indexCount = schema.match(/@@index\(\[lastPromptedAt\]\)/g)?.length ?? 0;
     expect(indexCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("stores llm usage totals for prompt-level accounting and daily caps", () => {
+    expect(schema).toContain('llmInputTokens Int          @default(0) @map("llm_input_tokens")');
+    expect(schema).toContain('llmOutputTokens Int         @default(0) @map("llm_output_tokens")');
+    expect(schema).toContain('llmTotalTokens Int          @default(0) @map("llm_total_tokens")');
+    expect(schema).toContain('usageDate  DateTime @map("usage_date") @db.Date');
+    expect(schema).toContain('usedTokens Int      @default(0) @map("used_tokens")');
+    expect(schema).toContain("@@id([usageDate, model])");
   });
 });

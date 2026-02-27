@@ -30,8 +30,8 @@ type FileConfig = {
     safety?: {
       maxExpertsPerPanel?: number;
       maxUserPromptChars?: number;
-      maxRequestPromptChars?: number;
       maxLiveOutputTokens?: number;
+      maxDailyTokens?: number;
     };
   };
   auth: {
@@ -127,8 +127,8 @@ const defaultOrchestrationConfig = {
 const defaultSafetyConfig = {
   maxExpertsPerPanel: 8,
   maxUserPromptChars: 4000,
-  maxRequestPromptChars: 16000,
-  maxLiveOutputTokens: 300
+  maxLiveOutputTokens: 300,
+  maxDailyTokens: 2500000
 };
 
 function resolveModelFromEnv(modelOverride: string | undefined): string {
@@ -227,16 +227,6 @@ export const appConfig = {
       )
     )
   ),
-  llmMaxRequestPromptChars: Math.max(
-    500,
-    Math.floor(
-      parseNumber(
-        process.env.LLM_MAX_REQUEST_PROMPT_CHARS,
-        fileConfig.llm.safety?.maxRequestPromptChars ??
-          defaultSafetyConfig.maxRequestPromptChars
-      )
-    )
-  ),
   llmMaxLiveOutputTokens: Math.max(
     1,
     Math.floor(
@@ -246,14 +236,18 @@ export const appConfig = {
           defaultSafetyConfig.maxLiveOutputTokens
       )
     )
+  ),
+  llmMaxDailyTokens: Math.max(
+    1,
+    Math.floor(
+      parseNumber(
+        process.env.LLM_MAX_DAILY_TOKENS,
+        fileConfig.llm.safety?.maxDailyTokens ??
+          defaultSafetyConfig.maxDailyTokens
+      )
+    )
   )
 } as const;
-
-if (appConfig.llmMaxRequestPromptChars < appConfig.llmMaxUserPromptChars) {
-  throw new Error(
-    "LLM_MAX_REQUEST_PROMPT_CHARS must be greater than or equal to LLM_MAX_USER_PROMPT_CHARS."
-  );
-}
 
 export function ensurePinnedModel(modelOverride?: string): string {
   /**

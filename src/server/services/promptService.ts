@@ -8,7 +8,11 @@ import { z } from "zod";
 import { appConfig } from "../../config/appConfig";
 import { prisma } from "../../lib/db";
 import { markPromptActivity } from "../repositories/activityOrdering";
-import { runPanel, type PanelRunnerHistoryPromptInput } from "./panelRunner";
+import {
+  estimatePanelMaxTokens,
+  runPanel,
+  type PanelRunnerHistoryPromptInput
+} from "./panelRunner";
 
 const createPromptSchema = z.object({
   content: z.string().trim().min(1).max(appConfig.llmMaxUserPromptChars)
@@ -39,14 +43,193 @@ export type PromptWithResponsesView = {
 };
 
 class PromptServiceError extends Error {
-  code: "VALIDATION" | "NOT_FOUND";
-  status: 400 | 404;
+  code: "VALIDATION" | "NOT_FOUND" | "RATE_LIMIT";
+  status: 400 | 404 | 429;
 
-  constructor(code: "VALIDATION" | "NOT_FOUND", status: 400 | 404, message: string) {
+  constructor(
+    code: "VALIDATION" | "NOT_FOUND" | "RATE_LIMIT",
+    status: 400 | 404 | 429,
+    message: string
+  ) {
     super(message);
     this.code = code;
     this.status = status;
   }
+}
+
+type LlmDailyUsageReservation = {
+  usageDate: Date;
+  model: string;
+  reservedTokens: number;
+};
+
+function toUtcDateOnly(date: Date): Date {
+  /**
+   * Purpose: Normalizes a timestamp to UTC day precision for daily usage ledger keys.
+   * Inputs: Any timestamp date.
+   * Outputs: New Date pinned to UTC midnight for the same calendar day.
+   */
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+  );
+}
+
+function normalizeTokenCount(value: number): number {
+  /**
+   * Purpose: Converts token counts to safe non-negative integers for persistence.
+   * Inputs: Raw numeric token count value.
+   * Outputs: Non-negative integer token count.
+   */
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.floor(value));
+}
+
+async function reserveDailyTokens(estimatedTokens: number): Promise<LlmDailyUsageReservation> {
+  /**
+   * Purpose: Atomically reserves estimated daily tokens before invoking live/simulated panel calls.
+   * Inputs: Conservative estimated token cost for the upcoming panel execution.
+   * Outputs: Reservation metadata used for later reconcile/release actions.
+   */
+  const normalizedEstimate = normalizeTokenCount(estimatedTokens);
+  const usageDate = toUtcDateOnly(new Date());
+  const model = appConfig.openAiModel;
+
+  if (normalizedEstimate === 0) {
+    return {
+      usageDate,
+      model,
+      reservedTokens: 0
+    };
+  }
+
+  await prisma.llmUsageDaily.upsert({
+    where: {
+      usageDate_model: {
+        usageDate,
+        model
+      }
+    },
+    create: {
+      usageDate,
+      model,
+      usedTokens: 0
+    },
+    update: {}
+  });
+
+  const maxUsedBeforeReservation = appConfig.llmMaxDailyTokens - normalizedEstimate;
+  if (maxUsedBeforeReservation < 0) {
+    throw new PromptServiceError(
+      "RATE_LIMIT",
+      429,
+      `Estimated request size exceeds daily cap of ${appConfig.llmMaxDailyTokens.toLocaleString()} tokens.`
+    );
+  }
+
+  const reservationResult = await prisma.llmUsageDaily.updateMany({
+    where: {
+      usageDate,
+      model,
+      usedTokens: {
+        lte: maxUsedBeforeReservation
+      }
+    },
+    data: {
+      usedTokens: {
+        increment: normalizedEstimate
+      }
+    }
+  });
+
+  if (reservationResult.count !== 1) {
+    throw new PromptServiceError(
+      "RATE_LIMIT",
+      429,
+      `Daily token cap reached (${appConfig.llmMaxDailyTokens.toLocaleString()} tokens/day).`
+    );
+  }
+
+  return {
+    usageDate,
+    model,
+    reservedTokens: normalizedEstimate
+  };
+}
+
+async function releaseReservedDailyTokens(reservation: LlmDailyUsageReservation): Promise<void> {
+  /**
+   * Purpose: Releases reserved daily tokens when panel execution fails before real usage is known.
+   * Inputs: Daily token reservation metadata.
+   * Outputs: None.
+   */
+  if (reservation.reservedTokens === 0) {
+    return;
+  }
+
+  await prisma.llmUsageDaily.updateMany({
+    where: {
+      usageDate: reservation.usageDate,
+      model: reservation.model,
+      usedTokens: {
+        gte: reservation.reservedTokens
+      }
+    },
+    data: {
+      usedTokens: {
+        decrement: reservation.reservedTokens
+      }
+    }
+  });
+}
+
+async function reconcileReservedDailyTokens(
+  reservation: LlmDailyUsageReservation,
+  actualTokens: number
+): Promise<void> {
+  /**
+   * Purpose: Reconciles reserved token usage against actual provider token usage totals.
+   * Inputs: Reservation metadata and actual total tokens consumed by the panel run.
+   * Outputs: None.
+   */
+  const normalizedActual = normalizeTokenCount(actualTokens);
+  if (normalizedActual === reservation.reservedTokens) {
+    return;
+  }
+
+  if (normalizedActual < reservation.reservedTokens) {
+    const refund = reservation.reservedTokens - normalizedActual;
+    await prisma.llmUsageDaily.updateMany({
+      where: {
+        usageDate: reservation.usageDate,
+        model: reservation.model,
+        usedTokens: {
+          gte: refund
+        }
+      },
+      data: {
+        usedTokens: {
+          decrement: refund
+        }
+      }
+    });
+    return;
+  }
+
+  const additionalTokens = normalizedActual - reservation.reservedTokens;
+  await prisma.llmUsageDaily.updateMany({
+    where: {
+      usageDate: reservation.usageDate,
+      model: reservation.model
+    },
+    data: {
+      usedTokens: {
+        increment: additionalTokens
+      }
+    }
+  });
 }
 
 function parseCreatePromptInput(input: unknown): CreatePromptInput {
@@ -231,16 +414,30 @@ export async function createPromptForConversation(
   });
   const mappedHistory = mapPromptHistoryForRunner(historyRows);
   const history = applyHistoryBudget(mappedHistory, appConfig.llmHistoryCharBudget);
+  const estimatedPanelTokens = estimatePanelMaxTokens(experts.length);
+  const reservation = await reserveDailyTokens(estimatedPanelTokens);
 
-  const panelResult = await runPanel({
-    conversationId,
-    panelId: conversation.panelId,
-    panelName: conversation.panel.name,
-    panelInstructions: conversation.panel.instructions,
-    promptContent: parsed.content,
-    history,
-    experts
-  });
+  let panelResult: Awaited<ReturnType<typeof runPanel>>;
+  try {
+    panelResult = await runPanel({
+      conversationId,
+      panelId: conversation.panelId,
+      panelName: conversation.panel.name,
+      panelInstructions: conversation.panel.instructions,
+      promptContent: parsed.content,
+      history,
+      experts
+    });
+  } catch (error) {
+    try {
+      await releaseReservedDailyTokens(reservation);
+    } catch (releaseError) {
+      console.error("Failed to release reserved daily tokens after panel error:", releaseError);
+    }
+    throw error;
+  }
+
+  await reconcileReservedDailyTokens(reservation, panelResult.usage.total_tokens);
 
   const validExpertIds = new Set(experts.map((expert) => expert.id));
 
@@ -271,7 +468,10 @@ export async function createPromptForConversation(
       data: {
         conversationId,
         sequence: nextPromptSequence,
-        content: parsed.content
+        content: parsed.content,
+        llmInputTokens: panelResult.usage.input_tokens,
+        llmOutputTokens: panelResult.usage.output_tokens,
+        llmTotalTokens: panelResult.usage.total_tokens
       },
       select: {
         id: true,

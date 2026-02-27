@@ -17,8 +17,8 @@
     "safety": {
       "maxExpertsPerPanel": 8,
       "maxUserPromptChars": 4000,
-      "maxRequestPromptChars": 16000,
-      "maxLiveOutputTokens": 300
+      "maxLiveOutputTokens": 300,
+      "maxDailyTokens": 2500000
     }
   },
   "auth": {

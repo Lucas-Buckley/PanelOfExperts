@@ -154,12 +154,17 @@ function buildTokenCapRetryPrompt(prompt: string): string {
    * Inputs: Original composed prompt.
    * Outputs: Retry prompt with strict response-length guidance appended.
    */
+  const retryTargetTokens = Math.max(
+    40,
+    Math.floor(appConfig.llmMaxLiveOutputTokens * 0.7)
+  );
+
   return [
     prompt.trimEnd(),
     "",
     "Output length requirement for this retry:",
     "- Return only the final answer.",
-    "- Keep the answer under 120 words.",
+    `- Target about ${retryTargetTokens} tokens.`,
     "- Use at most 5 bullet points when bullet points help.",
     "- Do not include extra preamble."
   ].join("\n");
@@ -247,11 +252,6 @@ export async function generateResponse(input: GenerateInput): Promise<LlmRespons
    */
   if (!appConfig.llmEnabled) {
     throw new Error("LLM is disabled by LLM_ENABLED=false.");
-  }
-  if (input.prompt.length > appConfig.llmMaxRequestPromptChars) {
-    throw new Error(
-      `LLM prompt exceeds max request size of ${appConfig.llmMaxRequestPromptChars} characters.`
-    );
   }
 
   const mode = getMode();

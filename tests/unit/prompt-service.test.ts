@@ -4,6 +4,7 @@ const prismaMock = vi.hoisted(() => ({
   conversation: { findFirst: vi.fn() },
   prompt: { findMany: vi.fn() },
   expert: { findMany: vi.fn() },
+  llmUsageDaily: { upsert: vi.fn(), updateMany: vi.fn() },
   $transaction: vi.fn()
 }));
 
@@ -12,7 +13,8 @@ const markPromptActivityMock = vi.hoisted(() => ({
 }));
 
 const panelRunnerMock = vi.hoisted(() => ({
-  runPanel: vi.fn()
+  runPanel: vi.fn(),
+  estimatePanelMaxTokens: vi.fn()
 }));
 
 vi.mock("../../src/lib/db", () => ({
@@ -24,7 +26,8 @@ vi.mock("../../src/server/repositories/activityOrdering", () => ({
 }));
 
 vi.mock("../../src/server/services/panelRunner", () => ({
-  runPanel: panelRunnerMock.runPanel
+  runPanel: panelRunnerMock.runPanel,
+  estimatePanelMaxTokens: panelRunnerMock.estimatePanelMaxTokens
 }));
 
 import { createPromptForConversation } from "../../src/server/services/promptService";
@@ -60,9 +63,19 @@ beforeEach(() => {
   prismaMock.conversation.findFirst.mockReset();
   prismaMock.prompt.findMany.mockReset();
   prismaMock.expert.findMany.mockReset();
+  prismaMock.llmUsageDaily.upsert.mockReset();
+  prismaMock.llmUsageDaily.updateMany.mockReset();
   prismaMock.$transaction.mockReset();
   markPromptActivityMock.markPromptActivity.mockReset();
   panelRunnerMock.runPanel.mockReset();
+  panelRunnerMock.estimatePanelMaxTokens.mockReset();
+  prismaMock.llmUsageDaily.upsert.mockResolvedValue({
+    usageDate: new Date("2026-02-26T00:00:00.000Z"),
+    model: "gpt-5-nano-2025-08-07",
+    usedTokens: 0
+  });
+  prismaMock.llmUsageDaily.updateMany.mockResolvedValue({ count: 1 });
+  panelRunnerMock.estimatePanelMaxTokens.mockReturnValue(1000);
 });
 
 describe("prompt service", () => {
@@ -130,7 +143,12 @@ describe("prompt service", () => {
       responses: [
         { expertId: 2, expertName: "A", sequence: 1, content: "resp-2" },
         { expertId: 5, expertName: "B", sequence: 2, content: "resp-5" }
-      ]
+      ],
+      usage: {
+        input_tokens: 80,
+        output_tokens: 120,
+        total_tokens: 200
+      }
     });
 
     prismaMock.$transaction.mockImplementation(async (cb: (txArg: TxClient) => unknown) => cb(tx));
@@ -163,6 +181,15 @@ describe("prompt service", () => {
         data: expect.objectContaining({
           promptId: 501,
           expertId: 5
+        })
+      })
+    );
+    expect(tx.prompt.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          llmInputTokens: 80,
+          llmOutputTokens: 120,
+          llmTotalTokens: 200
         })
       })
     );
@@ -224,7 +251,12 @@ describe("prompt service", () => {
     });
     panelRunnerMock.runPanel.mockReturnValue({
       mode: "executed",
-      responses: [{ expertId: 2, expertName: "A", sequence: 1, content: "resp" }]
+      responses: [{ expertId: 2, expertName: "A", sequence: 1, content: "resp" }],
+      usage: {
+        input_tokens: 50,
+        output_tokens: 60,
+        total_tokens: 110
+      }
     });
 
     prismaMock.$transaction.mockImplementation(async (cb: (txArg: TxClient) => unknown) => cb(tx));
@@ -246,5 +278,32 @@ describe("prompt service", () => {
       history: Array<{ sequence: number }>;
     };
     expect(runnerArgs.history.map((item) => item.sequence)).toEqual([1, 10]);
+  });
+
+  it("rejects prompt execution when daily token cap reservation fails", async () => {
+    prismaMock.conversation.findFirst.mockResolvedValue({
+      id: 88,
+      panelId: 42,
+      panel: {
+        name: "Launch Council",
+        instructions: "Use practical, testable advice."
+      }
+    });
+    prismaMock.prompt.findMany.mockResolvedValue([]);
+    prismaMock.expert.findMany.mockResolvedValue([
+      { id: 2, name: "A", specialization: "X", soul: "Y", position: 1 }
+    ]);
+    prismaMock.llmUsageDaily.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(
+      createPromptForConversation(7, 88, {
+        content: "new prompt"
+      })
+    ).rejects.toMatchObject({
+      status: 429
+    });
+
+    expect(panelRunnerMock.runPanel).not.toHaveBeenCalled();
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 });
