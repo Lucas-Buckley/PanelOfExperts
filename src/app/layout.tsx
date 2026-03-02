@@ -22,7 +22,25 @@ export default function RootLayout({ children }: RootLayoutProps) {
    */
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <style jsx global>{`
+          html,
+          body {
+            margin: 0;
+            padding: 0;
+            min-height: 100%;
+            background: #f4f7ff;
+          }
+
+          @media (prefers-color-scheme: dark) {
+            html,
+            body {
+              background: #0d1117;
+            }
+          }
+        `}</style>
+      </body>
     </html>
   );
 }
