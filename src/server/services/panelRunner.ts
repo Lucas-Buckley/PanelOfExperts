@@ -50,6 +50,8 @@ export type PanelRunnerResult = {
   usage: LlmUsage;
 };
 
+const INTER_EXPERT_RETRY_LIMIT = 1;
+
 function createZeroUsage(): LlmUsage {
   /**
    * Purpose: Provides a reusable zero-value usage object for aggregation.
@@ -217,6 +219,86 @@ function formatCurrentTurnOutputs(outputs: PanelRunnerResponse[]): string {
     .join("\n");
 }
 
+function buildInterExpertResponseContract(
+  priorCurrentTurnOutputs: PanelRunnerResponse[]
+): string {
+  /**
+   * Purpose: Builds explicit response-format requirements that force inter-expert engagement.
+   * Inputs: Prior expert outputs generated in this same turn.
+   * Outputs: Required output contract text for downstream experts.
+   */
+  const requiredReferences = priorCurrentTurnOutputs
+    .map((response) => `- [${response.sequence}] ${response.expertName}`)
+    .join("\n");
+
+  return [
+    "Inter-expert response requirements (required):",
+    "1) Response to prior expert:",
+    `- Explicitly reference at least one prior expert from this list:\n${requiredReferences}`,
+    "- State one point you agree with or challenge.",
+    "2) My distinct angle:",
+    "- Add one non-redundant point from your specialization.",
+    "3) Caveat or disagreement:",
+    "- Include one caveat, disagreement, or scope boundary."
+  ].join("\n");
+}
+
+function hasRequiredInterExpertReference(
+  content: string,
+  priorCurrentTurnOutputs: PanelRunnerResponse[]
+): boolean {
+  /**
+   * Purpose: Checks whether downstream expert output explicitly references at least one prior expert.
+   * Inputs: Generated output content and prior same-turn expert outputs.
+   * Outputs: `true` when explicit reference exists, otherwise `false`.
+   */
+  const normalizedContent = content.toLowerCase();
+
+  return priorCurrentTurnOutputs.some((response) => {
+    const sequenceReference = `[${response.sequence}]`;
+    const normalizedExpertName = response.expertName.toLowerCase();
+    return (
+      normalizedContent.includes(sequenceReference) ||
+      normalizedContent.includes(normalizedExpertName)
+    );
+  });
+}
+
+function shouldEnforceInterExpertReference(args: {
+  expertIndex: number;
+  priorCurrentTurnOutputs: PanelRunnerResponse[];
+}): boolean {
+  /**
+   * Purpose: Determines whether current expert response must reference prior same-turn experts.
+   * Inputs: Current expert index and existing same-turn outputs.
+   * Outputs: `true` only for downstream experts with prior outputs available.
+   */
+  return args.expertIndex > 0 && args.priorCurrentTurnOutputs.length > 0;
+}
+
+function buildInterExpertCorrectionPrompt(args: {
+  basePrompt: string;
+  priorCurrentTurnOutputs: PanelRunnerResponse[];
+  previousAttemptContent: string;
+}): string {
+  /**
+   * Purpose: Builds one corrective prompt when downstream expert output misses required references.
+   * Inputs: Original composed prompt, prior same-turn outputs, and previous attempt content.
+   * Outputs: Corrective retry prompt that preserves context and adds strict remediation instructions.
+   */
+  return [
+    args.basePrompt,
+    "",
+    "Correction required:",
+    "Your previous attempt did not explicitly reference a prior expert.",
+    "Regenerate the answer and satisfy all inter-expert requirements exactly.",
+    buildInterExpertResponseContract(args.priorCurrentTurnOutputs),
+    "",
+    "Previous attempt (for reference only, do not copy verbatim):",
+    args.previousAttemptContent
+  ].join("\n\n");
+}
+
 function composePromptForExpert(args: {
   expert: PanelRunnerExpertInput;
   orderedExperts: PanelRunnerExpertInput[];
@@ -272,6 +354,7 @@ function composePromptForExpert(args: {
     "",
     "Respond as this expert while considering both context and prior expert outputs.",
     "Avoid repeating prior experts verbatim; add a complementary angle from your specialization.",
+    buildInterExpertResponseContract(args.priorCurrentTurnOutputs),
     ...buildTokenLengthGuidanceLines()
   ].join("\n\n");
 }
@@ -374,8 +457,31 @@ export async function runPanel(input: PanelRunnerInput): Promise<PanelRunnerResu
       priorCurrentTurnOutputs: responses,
       isFirstExpertInTurn: index === 0
     });
-    const llmResponse = await generateWithRetry(composedPrompt);
+    let llmResponse = await generateWithRetry(composedPrompt);
     usage = addUsage(usage, llmResponse.usage);
+
+    if (
+      shouldEnforceInterExpertReference({
+        expertIndex: index,
+        priorCurrentTurnOutputs: responses
+      }) &&
+      !hasRequiredInterExpertReference(llmResponse.content, responses)
+    ) {
+      for (
+        let retryAttempt = 0;
+        retryAttempt < INTER_EXPERT_RETRY_LIMIT &&
+        !hasRequiredInterExpertReference(llmResponse.content, responses);
+        retryAttempt += 1
+      ) {
+        const correctionPrompt = buildInterExpertCorrectionPrompt({
+          basePrompt: composedPrompt,
+          priorCurrentTurnOutputs: responses,
+          previousAttemptContent: llmResponse.content
+        });
+        llmResponse = await generateWithRetry(correctionPrompt);
+        usage = addUsage(usage, llmResponse.usage);
+      }
+    }
 
     responses.push({
       expertId: expert.id,
