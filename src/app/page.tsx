@@ -800,7 +800,7 @@ export default function HomePage() {
         {auth ? (
           <div className="auth-summary">
             <p>
-              Signed in as <strong>{auth.account.email}</strong> (account #{auth.account.id})
+              Signed in as <strong>{auth.account.email}</strong>
             </p>
             <button type="button" onClick={handleLogout} disabled={isBusy}>
               Logout
@@ -1141,14 +1141,61 @@ export default function HomePage() {
 
       <style jsx>{`
         .page {
+          --bg-start: #f4f7ff;
+          --bg-mid: #edf8f5;
+          --bg-end: #fff6eb;
+          --text-main: #1f2633;
+          --card-bg: rgba(255, 255, 255, 0.9);
+          --card-border: #ccd4e5;
+          --form-bg: #fdfefe;
+          --form-border: #dde4f1;
+          --field-border: #c5cedd;
+          --button-border: #44577a;
+          --button-bg: #eef4ff;
+          --panel-bg: #f9fbff;
+          --panel-border: #ced8eb;
+          --prompt-bg: #fcfdff;
+          --prompt-border: #d4dfef;
+          --status-color: #1b5e20;
+          --error-color: #a11818;
+          --danger-border: #9c2a2a;
+          --danger-bg: #ffefef;
+          --danger-text: #6f1111;
+          color-scheme: light;
           min-height: 100vh;
           padding: 24px;
-          background: linear-gradient(170deg, #f4f7ff 0%, #edf8f5 45%, #fff6eb 100%);
-          color: #1f2633;
+          background: linear-gradient(170deg, var(--bg-start) 0%, var(--bg-mid) 45%, var(--bg-end) 100%);
+          color: var(--text-main);
           font-family: "Trebuchet MS", "Segoe UI", sans-serif;
           display: grid;
           align-content: start;
           gap: 16px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+          .page {
+            --bg-start: #0d1117;
+            --bg-mid: #111827;
+            --bg-end: #161b22;
+            --text-main: #e5ebf5;
+            --card-bg: rgba(20, 28, 40, 0.92);
+            --card-border: #334155;
+            --form-bg: #111827;
+            --form-border: #334155;
+            --field-border: #475569;
+            --button-border: #64748b;
+            --button-bg: #1e293b;
+            --panel-bg: #0f172a;
+            --panel-border: #334155;
+            --prompt-bg: #111827;
+            --prompt-border: #334155;
+            --status-color: #86efac;
+            --error-color: #fca5a5;
+            --danger-border: #f87171;
+            --danger-bg: rgba(153, 27, 27, 0.25);
+            --danger-text: #fecaca;
+            color-scheme: dark;
+          }
         }
 
         .top-bar {
@@ -1178,8 +1225,8 @@ export default function HomePage() {
         }
 
         .card {
-          background: rgba(255, 255, 255, 0.9);
-          border: 1px solid #ccd4e5;
+          background: var(--card-bg);
+          border: 1px solid var(--card-border);
           border-radius: 12px;
           padding: 16px;
           display: grid;
@@ -1206,9 +1253,9 @@ export default function HomePage() {
           display: grid;
           gap: 10px;
           padding: 10px;
-          border: 1px solid #dde4f1;
+          border: 1px solid var(--form-border);
           border-radius: 10px;
-          background: #fdfefe;
+          background: var(--form-bg);
         }
 
         label {
@@ -1225,16 +1272,19 @@ export default function HomePage() {
 
         input,
         textarea {
-          border: 1px solid #c5cedd;
+          border: 1px solid var(--field-border);
           border-radius: 8px;
           padding: 8px 10px;
+          background: var(--card-bg);
+          color: var(--text-main);
         }
 
         button {
-          border: 1px solid #44577a;
+          border: 1px solid var(--button-border);
           border-radius: 8px;
           padding: 8px 10px;
-          background: #eef4ff;
+          background: var(--button-bg);
+          color: var(--text-main);
           cursor: pointer;
         }
 
@@ -1252,7 +1302,7 @@ export default function HomePage() {
         }
 
         fieldset {
-          border: 1px solid #d7deea;
+          border: 1px solid var(--form-border);
           border-radius: 8px;
           padding: 8px;
           display: grid;
@@ -1265,10 +1315,10 @@ export default function HomePage() {
         }
 
         .active-info {
-          border: 1px solid #ced8eb;
+          border: 1px solid var(--panel-border);
           border-radius: 10px;
           padding: 10px;
-          background: #f9fbff;
+          background: var(--panel-bg);
           display: grid;
           gap: 6px;
         }
@@ -1279,23 +1329,23 @@ export default function HomePage() {
         }
 
         .prompt-item {
-          border: 1px solid #d4dfef;
+          border: 1px solid var(--prompt-border);
           border-radius: 10px;
           padding: 10px;
-          background: #fcfdff;
+          background: var(--prompt-bg);
           display: grid;
           gap: 8px;
         }
 
         .status {
           margin: 0;
-          color: #1b5e20;
+          color: var(--status-color);
           font-weight: 700;
         }
 
         .error {
           margin: 0;
-          color: #a11818;
+          color: var(--error-color);
           font-weight: 700;
         }
 
@@ -1306,9 +1356,9 @@ export default function HomePage() {
         }
 
         .danger {
-          border-color: #9c2a2a;
-          background: #ffefef;
-          color: #6f1111;
+          border-color: var(--danger-border);
+          background: var(--danger-bg);
+          color: var(--danger-text);
         }
       `}</style>
     </main>
