@@ -308,13 +308,12 @@ export default function HomePage() {
     });
   }, [handleApiError]);
 
-  async function handleAuth(mode: "register" | "login", event: FormEvent<HTMLFormElement>) {
+  async function submitAuth(mode: "register" | "login"): Promise<void> {
     /**
      * Purpose: Submits register/login requests and persists auth session for subsequent API calls.
-     * Inputs: Auth mode and submitted form event.
+     * Inputs: Auth mode selected by the user.
      * Outputs: No return value; updates auth and panel states on success.
      */
-    event.preventDefault();
     setStatusMessage("");
     setErrorMessage("");
     setIsBusy(true);
@@ -339,6 +338,16 @@ export default function HomePage() {
     } finally {
       setIsBusy(false);
     }
+  }
+
+  function handleAuthFormSubmit(event: FormEvent<HTMLFormElement>): void {
+    /**
+     * Purpose: Handles Enter-key auth submit by using login as the default action.
+     * Inputs: Submitted auth form event.
+     * Outputs: No return value; triggers login flow.
+     */
+    event.preventDefault();
+    void submitAuth("login");
   }
 
   function handleLogout(): void {
@@ -604,62 +613,37 @@ export default function HomePage() {
       <section className="card">
         <h2>Authentication</h2>
         {!auth ? (
-          <div className="auth-grid">
-            <form onSubmit={(event) => void handleAuth("register", event)}>
-              <h3>Register</h3>
-              <label>
-                Email
-                <input
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  type="email"
-                  autoComplete="email"
-                  required
-                />
-              </label>
-              <label>
-                Password
-                <input
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  type="password"
-                  autoComplete="new-password"
-                  minLength={8}
-                  required
-                />
-              </label>
-              <button type="submit" disabled={isBusy}>
+          <form className="auth-form" onSubmit={handleAuthFormSubmit}>
+            <label>
+              Email
+              <input
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                type="email"
+                autoComplete="email"
+                required
+              />
+            </label>
+            <label>
+              Password
+              <input
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                type="password"
+                autoComplete="current-password"
+                minLength={8}
+                required
+              />
+            </label>
+            <div className="auth-actions">
+              <button type="button" onClick={() => void submitAuth("register")} disabled={isBusy}>
                 Register
               </button>
-            </form>
-
-            <form onSubmit={(event) => void handleAuth("login", event)}>
-              <h3>Login</h3>
-              <label>
-                Email
-                <input
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  type="email"
-                  autoComplete="email"
-                  required
-                />
-              </label>
-              <label>
-                Password
-                <input
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                />
-              </label>
               <button type="submit" disabled={isBusy}>
                 Login
               </button>
-            </form>
-          </div>
+            </div>
+          </form>
         ) : (
           <div>
             <p>
@@ -908,6 +892,7 @@ export default function HomePage() {
           color: #1f2633;
           font-family: "Trebuchet MS", "Segoe UI", sans-serif;
           display: grid;
+          align-content: start;
           gap: 16px;
         }
 
@@ -929,7 +914,16 @@ export default function HomePage() {
           gap: 12px;
         }
 
-        .auth-grid,
+        .auth-form {
+          max-width: 640px;
+        }
+
+        .auth-actions {
+          display: grid;
+          gap: 10px;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+
         .two-col {
           display: grid;
           gap: 12px;
