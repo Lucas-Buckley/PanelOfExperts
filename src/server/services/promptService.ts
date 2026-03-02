@@ -3,6 +3,7 @@
  * Inputs: Authenticated account id, conversation id, and prompt payload.
  * Outputs: Persisted prompt + ordered responses for API return.
  */
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { appConfig } from "../../config/appConfig";
@@ -530,6 +531,17 @@ export function mapPromptErrorToHttp(error: unknown): { status: number; message:
     return {
       status: error.status,
       message: error.message
+    };
+  }
+
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === "P2021" || error.code === "P2022")
+  ) {
+    return {
+      status: 503,
+      message:
+        "Database schema is out of date for prompt processing. Run migrations with `npm run db:migrate:deploy` and retry."
     };
   }
 
