@@ -7,7 +7,8 @@ const prismaMock = vi.hoisted(() => ({
   conversation: {
     create: vi.fn(),
     findFirst: vi.fn(),
-    findMany: vi.fn()
+    findMany: vi.fn(),
+    delete: vi.fn()
   }
 }));
 
@@ -17,6 +18,7 @@ vi.mock("../../src/lib/db", () => ({
 
 import {
   createConversationForAccount,
+  deleteConversationForAccount,
   getConversationForAccount,
   listConversationsForPanelForAccount
 } from "../../src/server/services/conversationService";
@@ -26,6 +28,7 @@ beforeEach(() => {
   prismaMock.conversation.create.mockReset();
   prismaMock.conversation.findFirst.mockReset();
   prismaMock.conversation.findMany.mockReset();
+  prismaMock.conversation.delete.mockReset();
 });
 
 describe("conversation service", () => {
@@ -160,5 +163,27 @@ describe("conversation service", () => {
     });
 
     expect(prismaMock.conversation.findMany).not.toHaveBeenCalled();
+  });
+
+  it("deletes conversation for owner", async () => {
+    prismaMock.conversation.findFirst.mockResolvedValue({ id: 77 });
+    prismaMock.conversation.delete.mockResolvedValue({ id: 77 });
+
+    const deleted = await deleteConversationForAccount(5, 77);
+
+    expect(deleted).toEqual({ id: 77 });
+    expect(prismaMock.conversation.delete).toHaveBeenCalledWith({
+      where: { id: 77 }
+    });
+  });
+
+  it("denies conversation deletion for non-owner", async () => {
+    prismaMock.conversation.findFirst.mockResolvedValue(null);
+
+    await expect(deleteConversationForAccount(5, 77)).rejects.toMatchObject({
+      status: 404
+    });
+
+    expect(prismaMock.conversation.delete).not.toHaveBeenCalled();
   });
 });

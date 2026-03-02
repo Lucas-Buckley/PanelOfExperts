@@ -1,12 +1,13 @@
 /**
- * Purpose: Handles single conversation API reads with ownership checks.
+ * Purpose: Handles single conversation API read/delete operations with ownership checks.
  * Inputs: Authenticated request with bearer token and `conversationId` route param.
- * Outputs: JSON conversation payload or mapped HTTP error response.
+ * Outputs: JSON conversation payloads or mapped HTTP error responses.
  */
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedAccountId, mapAccountAuthErrorToHttp } from "../../../../server/http/accountAuth";
 import {
+  deleteConversationForAccount,
   getConversationForAccount,
   mapConversationErrorToHttp
 } from "../../../../server/services/conversationService";
@@ -61,6 +62,27 @@ export async function GET(
     const conversationId = parseConversationId(routeParams.conversationId);
     const conversation = await getConversationForAccount(accountId, conversationId);
     return NextResponse.json(conversation, { status: 200 });
+  } catch (error) {
+    const mapped = mapRouteError(error);
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ conversationId: string }> }
+) {
+  /**
+   * Purpose: Deletes one conversation for authenticated owner.
+   * Inputs: HTTP request with bearer token + `conversationId` route param.
+   * Outputs: HTTP 200 deleted conversation id confirmation or mapped error response.
+   */
+  try {
+    const accountId = getAuthenticatedAccountId(request);
+    const routeParams = await params;
+    const conversationId = parseConversationId(routeParams.conversationId);
+    const deletedConversation = await deleteConversationForAccount(accountId, conversationId);
+    return NextResponse.json(deletedConversation, { status: 200 });
   } catch (error) {
     const mapped = mapRouteError(error);
     return NextResponse.json({ error: mapped.message }, { status: mapped.status });

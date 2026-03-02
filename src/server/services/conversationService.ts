@@ -216,6 +216,38 @@ export async function getConversationForAccount(
   return conversation;
 }
 
+export async function deleteConversationForAccount(
+  accountId: number,
+  conversationId: number
+): Promise<{ id: number }> {
+  /**
+   * Purpose: Deletes one conversation only when it belongs to account-owned panel tree.
+   * Inputs: Authenticated account id and target conversation id.
+   * Outputs: Deleted conversation id confirmation payload.
+   */
+  const ownedConversation = await prisma.conversation.findFirst({
+    where: {
+      id: conversationId,
+      panel: {
+        accountId
+      }
+    },
+    select: { id: true }
+  });
+
+  if (!ownedConversation) {
+    throw new ConversationServiceError("NOT_FOUND", 404, "Conversation not found.");
+  }
+
+  await prisma.conversation.delete({
+    where: {
+      id: conversationId
+    }
+  });
+
+  return { id: conversationId };
+}
+
 export function mapConversationErrorToHttp(error: unknown): {
   status: number;
   message: string;

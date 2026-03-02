@@ -121,7 +121,7 @@ function createExpertDraft(): ExpertDraft {
 
 async function requestJson<T>(args: {
   path: string;
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   accessToken?: string;
   body?: unknown;
 }): Promise<T> {
@@ -201,7 +201,7 @@ function writeStoredAuth(auth: AuthSuccess | null): void {
 
 export default function HomePage() {
   /**
-   * Purpose: Hosts end-to-end MVP controls: auth, panel management, conversation load/create, and prompt loop.
+   * Purpose: Hosts end-to-end MVP controls: auth, panel create/edit/delete, conversation create/open/delete, and prompt loop.
    * Inputs: None.
    * Outputs: Home page JSX with form handlers wired to API routes.
    */
@@ -214,6 +214,9 @@ export default function HomePage() {
   const [newPanelName, setNewPanelName] = useState("");
   const [newPanelDescription, setNewPanelDescription] = useState("");
   const [newPanelInstructions, setNewPanelInstructions] = useState("");
+  const [editPanelName, setEditPanelName] = useState("");
+  const [editPanelDescription, setEditPanelDescription] = useState("");
+  const [editPanelInstructions, setEditPanelInstructions] = useState("");
   const [expertDrafts, setExpertDrafts] = useState<ExpertDraft[]>([createExpertDraft()]);
 
   const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
@@ -329,6 +332,24 @@ export default function HomePage() {
       handleApiError(error, "Failed to load panels.");
     });
   }, [handleApiError]);
+
+  useEffect(() => {
+    /**
+     * Purpose: Keeps edit-panel form fields synchronized with the currently selected panel.
+     * Inputs: Active panel value from selection/create/update flows.
+     * Outputs: No return value; updates edit-panel field state.
+     */
+    if (!activePanel) {
+      setEditPanelName("");
+      setEditPanelDescription("");
+      setEditPanelInstructions("");
+      return;
+    }
+
+    setEditPanelName(activePanel.name);
+    setEditPanelDescription(activePanel.description ?? "");
+    setEditPanelInstructions(activePanel.instructions ?? "");
+  }, [activePanel]);
 
   async function submitAuth(mode: "register" | "login"): Promise<void> {
     /**
@@ -533,6 +554,77 @@ export default function HomePage() {
     }
   }
 
+  async function handleUpdateActivePanel(event: FormEvent<HTMLFormElement>): Promise<void> {
+    /**
+     * Purpose: Updates active panel metadata and refreshes panel list ordering/details.
+     * Inputs: Submitted edit-panel form event.
+     * Outputs: No return value; updates active panel state and status text.
+     */
+    event.preventDefault();
+    if (!auth || !activePanel) {
+      return;
+    }
+
+    setStatusMessage("");
+    setErrorMessage("");
+    setIsBusy(true);
+    try {
+      const updatedPanel = await requestJson<PanelView>({
+        path: `/api/panels/${activePanel.id}`,
+        method: "PATCH",
+        accessToken: auth.accessToken,
+        body: {
+          name: editPanelName,
+          description: editPanelDescription.length > 0 ? editPanelDescription : null,
+          instructions: editPanelInstructions.length > 0 ? editPanelInstructions : null
+        }
+      });
+      setActivePanel(updatedPanel);
+      await loadPanels(auth.accessToken);
+      setStatusMessage(`Updated panel: ${updatedPanel.name}.`);
+    } catch (error) {
+      handleApiError(error, "Failed to update panel.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleDeleteActivePanel(): Promise<void> {
+    /**
+     * Purpose: Deletes active panel after confirmation and clears dependent panel/conversation UI state.
+     * Inputs: None.
+     * Outputs: No return value; updates panel/conversation state after delete.
+     */
+    if (!auth || !activePanel) {
+      return;
+    }
+
+    if (!window.confirm(`Delete panel "${activePanel.name}" and all its conversations?`)) {
+      return;
+    }
+
+    const deletedPanelName = activePanel.name;
+    setStatusMessage("");
+    setErrorMessage("");
+    setIsBusy(true);
+    try {
+      await requestJson<{ id: number }>({
+        path: `/api/panels/${activePanel.id}`,
+        method: "DELETE",
+        accessToken: auth.accessToken
+      });
+      setActivePanel(null);
+      setActiveConversation(null);
+      setPanelConversations([]);
+      await loadPanels(auth.accessToken);
+      setStatusMessage(`Deleted panel: ${deletedPanelName}.`);
+    } catch (error) {
+      handleApiError(error, "Failed to delete panel.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function handleCreateConversation(event: FormEvent<HTMLFormElement>): Promise<void> {
     /**
      * Purpose: Creates a conversation under the active panel and opens it in conversation view.
@@ -612,6 +704,42 @@ export default function HomePage() {
     }
   }
 
+  async function handleDeleteConversation(conversation: ConversationListItemView): Promise<void> {
+    /**
+     * Purpose: Deletes one conversation from active-panel list and clears active view when needed.
+     * Inputs: Conversation list item selected for deletion.
+     * Outputs: No return value; updates list, active conversation, and status text.
+     */
+    if (!auth) {
+      return;
+    }
+
+    if (!window.confirm(`Delete conversation "${conversation.name}"?`)) {
+      return;
+    }
+
+    setStatusMessage("");
+    setErrorMessage("");
+    setIsBusy(true);
+    try {
+      await requestJson<{ id: number }>({
+        path: `/api/conversations/${conversation.id}`,
+        method: "DELETE",
+        accessToken: auth.accessToken
+      });
+      if (activeConversation?.id === conversation.id) {
+        setActiveConversation(null);
+      }
+      await loadPanelConversations(auth.accessToken, conversation.panelId);
+      await loadPanels(auth.accessToken);
+      setStatusMessage(`Deleted conversation: ${conversation.name}.`);
+    } catch (error) {
+      handleApiError(error, "Failed to delete conversation.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function handleSubmitPrompt(event: FormEvent<HTMLFormElement>): Promise<void> {
     /**
      * Purpose: Sends a prompt for the active conversation and appends resulting expert responses to UI history.
@@ -667,13 +795,23 @@ export default function HomePage() {
 
   return (
     <main className="page">
-      <section className="hero">
+      <header className="top-bar">
         <h1>Panel of Experts</h1>
-      </section>
+        {auth ? (
+          <div className="auth-summary">
+            <p>
+              Signed in as <strong>{auth.account.email}</strong> (account #{auth.account.id})
+            </p>
+            <button type="button" onClick={handleLogout} disabled={isBusy}>
+              Logout
+            </button>
+          </div>
+        ) : null}
+      </header>
 
-      <section className="card">
-        <h2>Authentication</h2>
-        {!auth ? (
+      {!auth ? (
+        <section className="card">
+          <h2>Authentication</h2>
           <form className="auth-form" onSubmit={handleAuthFormSubmit}>
             <label>
               Email
@@ -705,17 +843,8 @@ export default function HomePage() {
               </button>
             </div>
           </form>
-        ) : (
-          <div>
-            <p>
-              Signed in as <strong>{auth.account.email}</strong> (account #{auth.account.id})
-            </p>
-            <button type="button" onClick={handleLogout} disabled={isBusy}>
-              Logout
-            </button>
-          </div>
-        )}
-      </section>
+        </section>
+      ) : null}
 
       {auth ? (
         <>
@@ -837,10 +966,51 @@ export default function HomePage() {
                 <ul>
                   {activePanel.experts.map((expert) => (
                     <li key={expert.id}>
-                      [{expert.position}] {expert.name} - {expert.specialization}
+                      {expert.name} - {expert.specialization}
                     </li>
                   ))}
                 </ul>
+                <form onSubmit={(event) => void handleUpdateActivePanel(event)}>
+                  <h4>Edit Active Panel</h4>
+                  <label>
+                    Name
+                    <input
+                      value={editPanelName}
+                      onChange={(event) => setEditPanelName(event.target.value)}
+                      maxLength={255}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Description
+                    <input
+                      value={editPanelDescription}
+                      onChange={(event) => setEditPanelDescription(event.target.value)}
+                      maxLength={255}
+                    />
+                  </label>
+                  <label>
+                    Instructions
+                    <textarea
+                      value={editPanelInstructions}
+                      onChange={(event) => setEditPanelInstructions(event.target.value)}
+                      rows={3}
+                    />
+                  </label>
+                  <div className="action-row">
+                    <button type="submit" disabled={isBusy}>
+                      Save Panel Changes
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => void handleDeleteActivePanel()}
+                      disabled={isBusy}
+                    >
+                      Delete Active Panel
+                    </button>
+                  </div>
+                </form>
               </div>
             ) : null}
           </section>
@@ -880,13 +1050,23 @@ export default function HomePage() {
                   <ul>
                     {panelConversations.map((conversation) => (
                       <li key={conversation.id}>
-                        <button
-                          type="button"
-                          onClick={() => void handleSelectConversationFromList(conversation.id)}
-                          disabled={isBusy}
-                        >
-                          Open: {conversation.name}
-                        </button>
+                        <div className="action-row">
+                          <button
+                            type="button"
+                            onClick={() => void handleSelectConversationFromList(conversation.id)}
+                            disabled={isBusy}
+                          >
+                            {conversation.name}
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            onClick={() => void handleDeleteConversation(conversation)}
+                            disabled={isBusy}
+                          >
+                            Delete
+                          </button>
+                        </div>
                         <span> - Last prompted: {formatTimestamp(conversation.lastPromptedAt)}</span>
                       </li>
                     ))}
@@ -971,13 +1151,30 @@ export default function HomePage() {
           gap: 16px;
         }
 
-        .hero h1 {
-          margin: 0 0 4px;
+        .top-bar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .top-bar h1 {
+          margin: 0;
           font-size: 2rem;
         }
 
-        .hero p {
+        .auth-summary {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .auth-summary p {
           margin: 0;
+          text-align: right;
         }
 
         .card {
@@ -1100,6 +1297,18 @@ export default function HomePage() {
           margin: 0;
           color: #a11818;
           font-weight: 700;
+        }
+
+        .action-row {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .danger {
+          border-color: #9c2a2a;
+          background: #ffefef;
+          color: #6f1111;
         }
       `}</style>
     </main>

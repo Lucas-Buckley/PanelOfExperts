@@ -1,5 +1,5 @@
 /**
- * Purpose: Implements panel domain logic for create/list/read operations with ownership checks.
+ * Purpose: Implements panel domain logic for create/list/read/update/delete operations with ownership checks.
  * Inputs: Authenticated account id plus panel payload/identifier values.
  * Outputs: Panel DTOs for API responses or mapped panel-domain errors.
  */
@@ -23,6 +23,22 @@ const createPanelSchema = z.object({
 });
 
 type CreatePanelInput = z.infer<typeof createPanelSchema>;
+
+const updatePanelSchema = z
+  .object({
+    name: z.string().trim().min(1).max(DB_FIELD_LIMITS.panel.name).optional(),
+    description: z.string().trim().max(DB_FIELD_LIMITS.panel.description).nullable().optional(),
+    instructions: z.string().trim().nullable().optional()
+  })
+  .refine(
+    (value) =>
+      value.name !== undefined || value.description !== undefined || value.instructions !== undefined,
+    {
+      message: "At least one panel field must be provided."
+    }
+  );
+
+type UpdatePanelInput = z.infer<typeof updatePanelSchema>;
 
 export type PanelExpertView = {
   id: number;
@@ -60,6 +76,20 @@ function parseCreatePanelInput(input: unknown): CreatePanelInput {
    * Outputs: Typed panel payload or throws validation error.
    */
   const parsed = createPanelSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new PanelServiceError("VALIDATION", 400, "Invalid panel payload.");
+  }
+
+  return parsed.data;
+}
+
+function parseUpdatePanelInput(input: unknown): UpdatePanelInput {
+  /**
+   * Purpose: Validates and parses panel update payload.
+   * Inputs: Unknown request body for panel update.
+   * Outputs: Typed panel update payload or throws validation error.
+   */
+  const parsed = updatePanelSchema.safeParse(input);
   if (!parsed.success) {
     throw new PanelServiceError("VALIDATION", 400, "Invalid panel payload.");
   }
@@ -196,6 +226,91 @@ export async function getPanelForAccount(accountId: number, panelId: number): Pr
   }
 
   return panel;
+}
+
+export async function updatePanelForAccount(
+  accountId: number,
+  panelId: number,
+  input: unknown
+): Promise<PanelView> {
+  /**
+   * Purpose: Updates one account-owned panel metadata (name/description/instructions).
+   * Inputs: Authenticated account id, panel id, and update payload.
+   * Outputs: Updated panel DTO including expert list.
+   */
+  const parsed = parseUpdatePanelInput(input);
+
+  const ownedPanel = await prisma.panel.findFirst({
+    where: {
+      id: panelId,
+      accountId
+    },
+    select: { id: true }
+  });
+
+  if (!ownedPanel) {
+    throw new PanelServiceError("NOT_FOUND", 404, "Panel not found.");
+  }
+
+  const updated = await prisma.panel.update({
+    where: { id: panelId },
+    data: {
+      ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+      ...(parsed.description !== undefined
+        ? { description: normalizeNullableText(parsed.description) }
+        : {}),
+      ...(parsed.instructions !== undefined
+        ? { instructions: normalizeNullableText(parsed.instructions) }
+        : {})
+    },
+    select: {
+      id: true,
+      accountId: true,
+      name: true,
+      description: true,
+      instructions: true,
+      lastPromptedAt: true,
+      experts: {
+        orderBy: { position: "asc" },
+        select: {
+          id: true,
+          name: true,
+          specialization: true,
+          soul: true,
+          position: true
+        }
+      }
+    }
+  });
+
+  return updated;
+}
+
+export async function deletePanelForAccount(accountId: number, panelId: number): Promise<{ id: number }> {
+  /**
+   * Purpose: Deletes one account-owned panel and cascaded child records.
+   * Inputs: Authenticated account id and target panel id.
+   * Outputs: Deleted panel id confirmation payload.
+   */
+  const ownedPanel = await prisma.panel.findFirst({
+    where: {
+      id: panelId,
+      accountId
+    },
+    select: { id: true }
+  });
+
+  if (!ownedPanel) {
+    throw new PanelServiceError("NOT_FOUND", 404, "Panel not found.");
+  }
+
+  await prisma.panel.delete({
+    where: {
+      id: panelId
+    }
+  });
+
+  return { id: panelId };
 }
 
 export function mapPanelErrorToHttp(error: unknown): { status: number; message: string } {
