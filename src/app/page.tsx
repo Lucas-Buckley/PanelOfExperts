@@ -219,7 +219,6 @@ export default function HomePage() {
   const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
   const [panelConversations, setPanelConversations] = useState<ConversationListItemView[]>([]);
   const [newConversationName, setNewConversationName] = useState("");
-  const [conversationIdInput, setConversationIdInput] = useState("");
   const [promptInput, setPromptInput] = useState("");
 
   const [statusMessage, setStatusMessage] = useState("");
@@ -357,7 +356,6 @@ export default function HomePage() {
       setActivePanel(null);
       setActiveConversation(null);
       setPanelConversations([]);
-      setConversationIdInput("");
       setStatusMessage(mode === "register" ? "Account created and signed in." : "Signed in.");
       setPassword("");
     } catch (error) {
@@ -415,7 +413,6 @@ export default function HomePage() {
       });
       setActivePanel(panel);
       setActiveConversation(null);
-      setConversationIdInput("");
       await loadPanelConversations(auth.accessToken, panel.id);
       setStatusMessage(`Selected panel: ${panel.name}`);
     } catch (error) {
@@ -524,7 +521,6 @@ export default function HomePage() {
       setActivePanel(created);
       setActiveConversation(null);
       setPanelConversations([]);
-      setConversationIdInput("");
       setNewPanelName("");
       setNewPanelDescription("");
       setNewPanelInstructions("");
@@ -563,7 +559,6 @@ export default function HomePage() {
       });
       setActiveConversation(sortConversation(created));
       await loadPanelConversations(auth.accessToken, activePanel.id);
-      setConversationIdInput(String(created.id));
       setNewConversationName("");
       setStatusMessage(`Opened conversation: ${created.name}`);
     } catch (error) {
@@ -573,7 +568,10 @@ export default function HomePage() {
     }
   }
 
-  async function openConversationById(accessToken: string, conversationId: number): Promise<void> {
+  async function openConversationById(
+    accessToken: string,
+    conversationId: number
+  ): Promise<ConversationView> {
     /**
      * Purpose: Loads a conversation by id, ensures matching panel details, and syncs panel conversation list.
      * Inputs: Bearer access token and target conversation id.
@@ -586,38 +584,9 @@ export default function HomePage() {
     });
     await ensureActivePanel(accessToken, conversation.panelId);
     await loadPanelConversations(accessToken, conversation.panelId);
-    setActiveConversation(sortConversation(conversation));
-    setConversationIdInput(String(conversation.id));
-  }
-
-  async function handleLoadConversation(event: FormEvent<HTMLFormElement>): Promise<void> {
-    /**
-     * Purpose: Loads an existing conversation by id and ensures corresponding panel details are active.
-     * Inputs: Submitted load-conversation form event.
-     * Outputs: No return value; updates active conversation/panel states.
-     */
-    event.preventDefault();
-    if (!auth) {
-      return;
-    }
-
-    const parsedId = Number(conversationIdInput);
-    if (!Number.isInteger(parsedId) || parsedId <= 0) {
-      setErrorMessage("Conversation id must be a positive integer.");
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      await openConversationById(auth.accessToken, parsedId);
-      setStatusMessage(`Loaded conversation #${parsedId}.`);
-    } catch (error) {
-      handleApiError(error, "Failed to load conversation.");
-    } finally {
-      setIsBusy(false);
-    }
+    const sortedConversation = sortConversation(conversation);
+    setActiveConversation(sortedConversation);
+    return sortedConversation;
   }
 
   async function handleSelectConversationFromList(conversationId: number): Promise<void> {
@@ -634,8 +603,8 @@ export default function HomePage() {
     setErrorMessage("");
     setIsBusy(true);
     try {
-      await openConversationById(auth.accessToken, conversationId);
-      setStatusMessage(`Loaded conversation #${conversationId}.`);
+      const loadedConversation = await openConversationById(auth.accessToken, conversationId);
+      setStatusMessage(`Loaded conversation: ${loadedConversation.name}.`);
     } catch (error) {
       handleApiError(error, "Failed to open conversation.");
     } finally {
@@ -894,23 +863,6 @@ export default function HomePage() {
                   Create on Active Panel
                 </button>
               </form>
-
-              <form onSubmit={(event) => void handleLoadConversation(event)}>
-                <h3>Open Existing Conversation</h3>
-                <label>
-                  Conversation Id
-                  <input
-                    value={conversationIdInput}
-                    onChange={(event) => setConversationIdInput(event.target.value)}
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    required
-                  />
-                </label>
-                <button type="submit" disabled={isBusy}>
-                  Load by Id
-                </button>
-              </form>
             </div>
 
             {activePanel ? (
@@ -933,7 +885,7 @@ export default function HomePage() {
                           onClick={() => void handleSelectConversationFromList(conversation.id)}
                           disabled={isBusy}
                         >
-                          Open #{conversation.id}: {conversation.name}
+                          Open: {conversation.name}
                         </button>
                         <span> - Last prompted: {formatTimestamp(conversation.lastPromptedAt)}</span>
                       </li>
@@ -948,7 +900,7 @@ export default function HomePage() {
             {activeConversation ? (
               <div className="active-info">
                 <h3>
-                  Active Conversation: {activeConversation.name} (#{activeConversation.id})
+                  Active Conversation: {activeConversation.name}
                 </h3>
                 <p>Last prompted: {formatTimestamp(activeConversation.lastPromptedAt)}</p>
               </div>
