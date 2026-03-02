@@ -4,6 +4,7 @@
  * Outputs: Root page layout markup for all routes.
  */
 import type { ReactNode } from "react";
+import "./globals.css";
 
 export const metadata = {
   title: "Panel of Experts",
@@ -22,25 +23,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
    */
   return (
     <html lang="en">
-      <body>
-        {children}
-        <style jsx global>{`
-          html,
-          body {
-            margin: 0;
-            padding: 0;
-            min-height: 100%;
-            background: #f4f7ff;
-          }
-
-          @media (prefers-color-scheme: dark) {
-            html,
-            body {
-              background: #0d1117;
-            }
-          }
-        `}</style>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
