@@ -63,6 +63,13 @@ type ConversationView = {
   prompts: ConversationPromptView[];
 };
 
+type ConversationListItemView = {
+  id: number;
+  panelId: number;
+  name: string;
+  lastPromptedAt: string | null;
+};
+
 type PromptCreateResponse = {
   prompt: {
     id: number;
@@ -210,6 +217,7 @@ export default function HomePage() {
   const [expertDrafts, setExpertDrafts] = useState<ExpertDraft[]>([createExpertDraft()]);
 
   const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
+  const [panelConversations, setPanelConversations] = useState<ConversationListItemView[]>([]);
   const [newConversationName, setNewConversationName] = useState("");
   const [conversationIdInput, setConversationIdInput] = useState("");
   const [promptInput, setPromptInput] = useState("");
@@ -228,6 +236,7 @@ export default function HomePage() {
     setPanels([]);
     setActivePanel(null);
     setActiveConversation(null);
+    setPanelConversations([]);
     setPromptInput("");
     writeStoredAuth(null);
     setStatusMessage("");
@@ -270,6 +279,20 @@ export default function HomePage() {
       accessToken
     });
     setPanels(listedPanels);
+  }
+
+  async function loadPanelConversations(accessToken: string, panelId: number): Promise<void> {
+    /**
+     * Purpose: Loads conversations for one panel so users can browse/open existing threads by id.
+     * Inputs: Bearer access token and panel id.
+     * Outputs: No return value; updates conversation list state for the active panel.
+     */
+    const listedConversations = await requestJson<ConversationListItemView[]>({
+      path: `/api/conversations?panelId=${panelId}`,
+      method: "GET",
+      accessToken
+    });
+    setPanelConversations(listedConversations);
   }
 
   async function ensureActivePanel(accessToken: string, panelId: number): Promise<PanelView> {
@@ -331,6 +354,10 @@ export default function HomePage() {
       setAuth(result);
       writeStoredAuth(result);
       await loadPanels(result.accessToken);
+      setActivePanel(null);
+      setActiveConversation(null);
+      setPanelConversations([]);
+      setConversationIdInput("");
       setStatusMessage(mode === "register" ? "Account created and signed in." : "Signed in.");
       setPassword("");
     } catch (error) {
@@ -360,6 +387,7 @@ export default function HomePage() {
     setPanels([]);
     setActivePanel(null);
     setActiveConversation(null);
+    setPanelConversations([]);
     setPromptInput("");
     writeStoredAuth(null);
     setStatusMessage("Signed out.");
@@ -387,9 +415,34 @@ export default function HomePage() {
       });
       setActivePanel(panel);
       setActiveConversation(null);
+      setConversationIdInput("");
+      await loadPanelConversations(auth.accessToken, panel.id);
       setStatusMessage(`Selected panel: ${panel.name}`);
     } catch (error) {
       handleApiError(error, "Failed to load panel.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleRefreshPanelConversationList(): Promise<void> {
+    /**
+     * Purpose: Refreshes the active panel conversation list with standard error/session handling.
+     * Inputs: None.
+     * Outputs: No return value; updates panel conversation list and status/error state.
+     */
+    if (!auth || !activePanel) {
+      return;
+    }
+
+    setStatusMessage("");
+    setErrorMessage("");
+    setIsBusy(true);
+    try {
+      await loadPanelConversations(auth.accessToken, activePanel.id);
+      setStatusMessage(`Loaded ${activePanel.name} conversation list.`);
+    } catch (error) {
+      handleApiError(error, "Failed to load conversation list.");
     } finally {
       setIsBusy(false);
     }
@@ -470,6 +523,8 @@ export default function HomePage() {
       await loadPanels(auth.accessToken);
       setActivePanel(created);
       setActiveConversation(null);
+      setPanelConversations([]);
+      setConversationIdInput("");
       setNewPanelName("");
       setNewPanelDescription("");
       setNewPanelInstructions("");
@@ -507,6 +562,8 @@ export default function HomePage() {
         }
       });
       setActiveConversation(sortConversation(created));
+      await loadPanelConversations(auth.accessToken, activePanel.id);
+      setConversationIdInput(String(created.id));
       setNewConversationName("");
       setStatusMessage(`Opened conversation: ${created.name}`);
     } catch (error) {
@@ -514,6 +571,23 @@ export default function HomePage() {
     } finally {
       setIsBusy(false);
     }
+  }
+
+  async function openConversationById(accessToken: string, conversationId: number): Promise<void> {
+    /**
+     * Purpose: Loads a conversation by id, ensures matching panel details, and syncs panel conversation list.
+     * Inputs: Bearer access token and target conversation id.
+     * Outputs: No return value; updates active panel/conversation and list state.
+     */
+    const conversation = await requestJson<ConversationView>({
+      path: `/api/conversations/${conversationId}`,
+      method: "GET",
+      accessToken
+    });
+    await ensureActivePanel(accessToken, conversation.panelId);
+    await loadPanelConversations(accessToken, conversation.panelId);
+    setActiveConversation(sortConversation(conversation));
+    setConversationIdInput(String(conversation.id));
   }
 
   async function handleLoadConversation(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -537,16 +611,33 @@ export default function HomePage() {
     setErrorMessage("");
     setIsBusy(true);
     try {
-      const conversation = await requestJson<ConversationView>({
-        path: `/api/conversations/${parsedId}`,
-        method: "GET",
-        accessToken: auth.accessToken
-      });
-      await ensureActivePanel(auth.accessToken, conversation.panelId);
-      setActiveConversation(sortConversation(conversation));
-      setStatusMessage(`Loaded conversation #${conversation.id}.`);
+      await openConversationById(auth.accessToken, parsedId);
+      setStatusMessage(`Loaded conversation #${parsedId}.`);
     } catch (error) {
       handleApiError(error, "Failed to load conversation.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleSelectConversationFromList(conversationId: number): Promise<void> {
+    /**
+     * Purpose: Opens one conversation selected from the active-panel conversation list.
+     * Inputs: Conversation id from list button click.
+     * Outputs: No return value; updates active conversation and status state.
+     */
+    if (!auth) {
+      return;
+    }
+
+    setStatusMessage("");
+    setErrorMessage("");
+    setIsBusy(true);
+    try {
+      await openConversationById(auth.accessToken, conversationId);
+      setStatusMessage(`Loaded conversation #${conversationId}.`);
+    } catch (error) {
+      handleApiError(error, "Failed to open conversation.");
     } finally {
       setIsBusy(false);
     }
@@ -597,6 +688,7 @@ export default function HomePage() {
       setPromptInput("");
       setStatusMessage("Prompt submitted.");
       await loadPanels(auth.accessToken);
+      await loadPanelConversations(auth.accessToken, activeConversation.panelId);
     } catch (error) {
       handleApiError(error, "Failed to submit prompt.");
     } finally {
@@ -741,13 +833,12 @@ export default function HomePage() {
                       />
                     </label>
                     <label>
-                      Soul
+                      Personality
                       <input
                         value={expert.soul}
                         onChange={(event) =>
                           handleExpertDraftChange(index, "soul", event.target.value)
                         }
-                        required
                       />
                     </label>
                     <button
@@ -821,6 +912,38 @@ export default function HomePage() {
                 </button>
               </form>
             </div>
+
+            {activePanel ? (
+              <div className="active-info">
+                <h3>Conversations in Active Panel</h3>
+                <button
+                  type="button"
+                  onClick={() => void handleRefreshPanelConversationList()}
+                  disabled={isBusy}
+                >
+                  Refresh Conversation List
+                </button>
+                {panelConversations.length === 0 ? <p>No conversations yet for this panel.</p> : null}
+                {panelConversations.length > 0 ? (
+                  <ul>
+                    {panelConversations.map((conversation) => (
+                      <li key={conversation.id}>
+                        <button
+                          type="button"
+                          onClick={() => void handleSelectConversationFromList(conversation.id)}
+                          disabled={isBusy}
+                        >
+                          Open #{conversation.id}: {conversation.name}
+                        </button>
+                        <span> - Last prompted: {formatTimestamp(conversation.lastPromptedAt)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : (
+              <p>Select a panel to view existing conversations.</p>
+            )}
 
             {activeConversation ? (
               <div className="active-info">

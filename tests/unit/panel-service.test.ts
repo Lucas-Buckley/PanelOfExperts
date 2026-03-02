@@ -129,4 +129,39 @@ describe("panel service", () => {
 
     expect(prismaMock.panel.create).not.toHaveBeenCalled();
   });
+
+  it("allows missing soul and persists empty-string default", async () => {
+    prismaMock.panel.create.mockResolvedValue({
+      id: 12,
+      accountId: 3,
+      name: "No Soul Panel",
+      description: null,
+      instructions: null,
+      lastPromptedAt: null,
+      experts: [
+        {
+          id: 103,
+          name: "Expert A",
+          specialization: "Strategy",
+          soul: "",
+          position: 1
+        }
+      ]
+    });
+
+    await createPanelForAccount(3, {
+      name: "No Soul Panel",
+      experts: [
+        {
+          name: "Expert A",
+          specialization: "Strategy"
+        }
+      ]
+    });
+
+    const createArgs = prismaMock.panel.create.mock.calls[0][0] as {
+      data: { experts: { create: Array<{ soul: string }> } };
+    };
+    expect(createArgs.data.experts.create[0]?.soul).toBe("");
+  });
 });

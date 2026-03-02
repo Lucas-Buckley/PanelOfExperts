@@ -12,7 +12,7 @@ import { DB_FIELD_LIMITS } from "../contracts/dbFieldLimits";
 const createExpertSchema = z.object({
   name: z.string().trim().min(1).max(DB_FIELD_LIMITS.expert.name),
   specialization: z.string().trim().min(1).max(DB_FIELD_LIMITS.expert.specialization),
-  soul: z.string().trim().min(1)
+  soul: z.string().trim().optional().default("")
 });
 
 const createPanelSchema = z.object({

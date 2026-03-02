@@ -6,7 +6,8 @@ const prismaMock = vi.hoisted(() => ({
   },
   conversation: {
     create: vi.fn(),
-    findFirst: vi.fn()
+    findFirst: vi.fn(),
+    findMany: vi.fn()
   }
 }));
 
@@ -16,13 +17,15 @@ vi.mock("../../src/lib/db", () => ({
 
 import {
   createConversationForAccount,
-  getConversationForAccount
+  getConversationForAccount,
+  listConversationsForPanelForAccount
 } from "../../src/server/services/conversationService";
 
 beforeEach(() => {
   prismaMock.panel.findFirst.mockReset();
   prismaMock.conversation.create.mockReset();
   prismaMock.conversation.findFirst.mockReset();
+  prismaMock.conversation.findMany.mockReset();
 });
 
 describe("conversation service", () => {
@@ -107,5 +110,55 @@ describe("conversation service", () => {
         })
       })
     );
+  });
+
+  it("lists conversations for an owned panel in recency order", async () => {
+    const now = new Date("2026-03-02T10:00:00.000Z");
+    prismaMock.panel.findFirst.mockResolvedValue({ id: 10 });
+    prismaMock.conversation.findMany.mockResolvedValue([
+      {
+        id: 300,
+        panelId: 10,
+        name: "Newest",
+        lastPromptedAt: now
+      },
+      {
+        id: 299,
+        panelId: 10,
+        name: "Older",
+        lastPromptedAt: null
+      }
+    ]);
+
+    const listed = await listConversationsForPanelForAccount(5, 10);
+
+    expect(listed).toHaveLength(2);
+    expect(prismaMock.panel.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 10,
+        accountId: 5
+      },
+      select: { id: true }
+    });
+    expect(prismaMock.conversation.findMany).toHaveBeenCalledWith({
+      where: { panelId: 10 },
+      orderBy: [{ lastPromptedAt: "desc" }, { id: "desc" }],
+      select: {
+        id: true,
+        panelId: true,
+        name: true,
+        lastPromptedAt: true
+      }
+    });
+  });
+
+  it("rejects listing conversations for a panel not owned by account", async () => {
+    prismaMock.panel.findFirst.mockResolvedValue(null);
+
+    await expect(listConversationsForPanelForAccount(5, 999)).rejects.toMatchObject({
+      status: 404
+    });
+
+    expect(prismaMock.conversation.findMany).not.toHaveBeenCalled();
   });
 });

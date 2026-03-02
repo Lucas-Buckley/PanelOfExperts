@@ -1,5 +1,5 @@
 /**
- * Purpose: Implements conversation domain logic for create/read APIs with ownership enforcement.
+ * Purpose: Implements conversation domain logic for create/list/read APIs with ownership enforcement.
  * Inputs: Authenticated account id plus conversation payload/identifier values.
  * Outputs: Conversation DTOs or mapped domain error metadata for HTTP responses.
  */
@@ -39,6 +39,13 @@ export type ConversationView = {
   name: string;
   lastPromptedAt: Date | null;
   prompts: ConversationPromptView[];
+};
+
+export type ConversationListItemView = {
+  id: number;
+  panelId: number;
+  name: string;
+  lastPromptedAt: Date | null;
 };
 
 class ConversationServiceError extends Error {
@@ -120,6 +127,39 @@ export async function createConversationForAccount(
           }
         }
       }
+    }
+  });
+}
+
+export async function listConversationsForPanelForAccount(
+  accountId: number,
+  panelId: number
+): Promise<ConversationListItemView[]> {
+  /**
+   * Purpose: Lists conversations for one account-owned panel with recency-first ordering.
+   * Inputs: Authenticated account id and panel id.
+   * Outputs: Lightweight conversation list for panel navigation.
+   */
+  const ownedPanel = await prisma.panel.findFirst({
+    where: {
+      id: panelId,
+      accountId
+    },
+    select: { id: true }
+  });
+
+  if (!ownedPanel) {
+    throw new ConversationServiceError("NOT_FOUND", 404, "Panel not found.");
+  }
+
+  return prisma.conversation.findMany({
+    where: { panelId },
+    orderBy: [{ lastPromptedAt: "desc" }, { id: "desc" }],
+    select: {
+      id: true,
+      panelId: true,
+      name: true,
+      lastPromptedAt: true
     }
   });
 }
