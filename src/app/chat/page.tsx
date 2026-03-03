@@ -5,7 +5,7 @@
  * Inputs: Optional `panelId` query param, persisted auth session, and user interactions.
  * Outputs: Interactive chat page for conversation selection, prompt submission, and expert response history.
  */
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -91,6 +91,10 @@ type PromptCreateResponse = {
   }>;
 };
 
+type ConversationTitleResponse = {
+  title: string;
+};
+
 type ApiErrorShape = {
   error?: string;
 };
@@ -131,9 +135,9 @@ function readRequestedPanelIdFromLocation(): number | null {
   return parsePositiveInteger(query.get("panelId"));
 }
 
-function buildAutoConversationName(promptContent: string): string {
+function buildFallbackConversationName(promptContent: string): string {
   /**
-   * Purpose: Derives a readable default conversation name from first prompt content.
+   * Purpose: Derives fallback conversation name from first prompt when title generation is unavailable.
    * Inputs: Raw prompt text submitted by the user.
    * Outputs: Normalized conversation name capped to DB-safe length.
    */
@@ -347,6 +351,22 @@ export default function ChatPage() {
     return sortedConversation;
   }
 
+  async function generateConversationTitle(accessToken: string, prompt: string): Promise<string> {
+    /**
+     * Purpose: Requests backend-generated short title for first prompt using server-side LLM access.
+     * Inputs: Bearer access token and first prompt content.
+     * Outputs: Generated conversation title text.
+     */
+    const response = await requestJson<ConversationTitleResponse>({
+      path: "/api/conversations/title",
+      method: "POST",
+      accessToken,
+      body: { prompt }
+    });
+
+    return response.title;
+  }
+
   useEffect(() => {
     /**
      * Purpose: Restores persisted auth, loads panel list, and initializes selected panel from query/default.
@@ -497,7 +517,16 @@ export default function ChatPage() {
     try {
       let baseConversation = activeConversation;
       if (!baseConversation) {
-        const autoConversationName = buildAutoConversationName(submittedPrompt);
+        let autoConversationName = buildFallbackConversationName(submittedPrompt);
+        try {
+          autoConversationName = await generateConversationTitle(auth.accessToken, submittedPrompt);
+        } catch (titleError) {
+          const message = titleError instanceof Error ? titleError.message : "";
+          if (message === INVALID_ACCESS_TOKEN_MESSAGE) {
+            throw titleError;
+          }
+        }
+
         const createdConversation = await requestJson<ConversationView>({
           path: "/api/conversations",
           method: "POST",
@@ -552,6 +581,20 @@ export default function ChatPage() {
     }
   }
 
+  function handlePromptInputKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
+    /**
+     * Purpose: Submits the prompt form on Enter while preserving Shift+Enter as newline behavior.
+     * Inputs: Textarea keyboard event.
+     * Outputs: No return value; conditionally triggers form submit.
+     */
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
+
   return (
     <main className="page">
       {auth ? (
@@ -563,71 +606,77 @@ export default function ChatPage() {
             onClick={() => setIsSidebarOpen(false)}
           />
           <aside className="sidebar-shell">
-            <div className="sidebar-head">
-              <div className="sidebar-title">
-                <h1>Panel of Experts</h1>
-                <p>Chat Workspace</p>
+            <div className="sidebar-top">
+              <div className="sidebar-head">
+                <div className="sidebar-title">
+                  <h1>Panel of Experts</h1>
+                  <p>Chat Workspace</p>
+                </div>
               </div>
+
+              <div className="sidebar-actions">
+                <button
+                  type="button"
+                  className="mobile-only"
+                  onClick={() => setIsSidebarOpen(false)}
+                >
+                  Close
+                </button>
+                <Link className="button-link" href="/">
+                  Dashboard
+                </Link>
+              </div>
+
+              {activePanel ? (
+                <div className="panel-meta">
+                  <p>
+                    <strong>{activePanel.name}</strong>
+                  </p>
+                  <p>Experts:</p>
+                  <ul className="panel-experts">
+                    {activePanel.experts.length > 0 ? (
+                      activePanel.experts.map((expert) => <li key={expert.id}>{expert.name}</li>)
+                    ) : (
+                      <li>None</li>
+                    )}
+                  </ul>
+                </div>
+              ) : (
+                <p className="hint">Create/select a panel on the dashboard before chatting.</p>
+              )}
             </div>
 
-            <div className="sidebar-actions">
-              <button
-                type="button"
-                className="mobile-only"
-                onClick={() => setIsSidebarOpen(false)}
-              >
-                Close
-              </button>
-              <Link className="button-link" href="/">
-                Dashboard
-              </Link>
+            <div className="sidebar-conversation-area">
+              {panelConversations.length === 0 ? (
+                <p className="hint">No conversations yet for this panel.</p>
+              ) : null}
+              {panelConversations.length > 0 ? (
+                <ul className="conversation-list">
+                  {panelConversations.map((conversation) => (
+                    <li key={conversation.id}>
+                      <div className="conversation-row">
+                        <button
+                          type="button"
+                          className={`conversation-item ${activeConversation?.id === conversation.id ? "selected" : ""}`}
+                          onClick={() => void handleSelectConversationFromList(conversation.id)}
+                          disabled={isBusy}
+                        >
+                          <span>{conversation.name}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="danger compact"
+                          onClick={() => void handleDeleteConversation(conversation)}
+                          disabled={isBusy}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
-
-            {activePanel ? (
-              <div className="panel-meta">
-                <p>
-                  <strong>{activePanel.name}</strong>
-                </p>
-                <p>
-                  Experts:{" "}
-                  {activePanel.experts.length > 0
-                    ? activePanel.experts.map((expert) => expert.name).join(", ")
-                    : "None"}
-                </p>
-              </div>
-            ) : (
-              <p className="hint">Create/select a panel on the dashboard before chatting.</p>
-            )}
-
-            {panelConversations.length === 0 ? (
-              <p className="hint">No conversations yet for this panel.</p>
-            ) : null}
-            {panelConversations.length > 0 ? (
-              <ul className="conversation-list">
-                {panelConversations.map((conversation) => (
-                  <li key={conversation.id}>
-                    <div className="conversation-row">
-                      <button
-                        type="button"
-                        className={`conversation-item ${activeConversation?.id === conversation.id ? "selected" : ""}`}
-                        onClick={() => void handleSelectConversationFromList(conversation.id)}
-                        disabled={isBusy}
-                      >
-                        <span>{conversation.name}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="danger compact"
-                        onClick={() => void handleDeleteConversation(conversation)}
-                        disabled={isBusy}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
           </aside>
 
           <section className="chat-shell">
@@ -704,6 +753,7 @@ export default function ChatPage() {
                 <textarea
                   value={promptInput}
                   onChange={(event) => setPromptInput(event.target.value)}
+                  onKeyDown={handlePromptInputKeyDown}
                   rows={3}
                   placeholder="Ask your panel anything..."
                   required
@@ -760,6 +810,7 @@ export default function ChatPage() {
           --danger-text: #6f1111;
           color-scheme: light;
           min-height: 100vh;
+          height: 100vh;
           background: linear-gradient(170deg, var(--bg-start) 0%, var(--bg-mid) 45%, var(--bg-end) 100%);
           color: var(--text-main);
           font-family: "Trebuchet MS", "Segoe UI", sans-serif;
@@ -767,6 +818,7 @@ export default function ChatPage() {
           align-content: start;
           grid-template-rows: 1fr auto auto;
           gap: 6px;
+          overflow: hidden;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -809,28 +861,54 @@ export default function ChatPage() {
           display: grid;
           grid-template-columns: minmax(280px, 320px) 1fr;
           align-items: start;
-          min-height: 100vh;
+          min-height: 0;
+          height: 100%;
           position: relative;
+          overflow: hidden;
         }
 
         @media (max-width: 1040px) {
           .workspace {
             grid-template-columns: 1fr;
-            min-height: auto;
+            min-height: 0;
           }
         }
 
         .sidebar-shell {
           background: var(--sidebar-bg);
           border-right: 1px solid var(--sidebar-border);
-          min-height: 100vh;
+          min-height: 0;
+          height: 100vh;
           padding: 14px;
+          display: grid;
+          grid-template-rows: auto 1fr;
+          align-content: stretch;
+          gap: 12px;
+          overflow: hidden;
+          overflow-x: hidden;
+          z-index: 4;
+          backdrop-filter: blur(6px);
+        }
+
+        .sidebar-top {
+          position: sticky;
+          top: 0;
+          z-index: 2;
           display: grid;
           align-content: start;
           gap: 12px;
-          overflow: auto;
-          z-index: 4;
+          background: color-mix(in srgb, var(--sidebar-bg) 94%, transparent);
           backdrop-filter: blur(6px);
+          overflow: hidden;
+        }
+
+        .sidebar-conversation-area {
+          min-height: 0;
+          overflow-y: auto;
+          overflow-x: hidden;
+          display: grid;
+          align-content: start;
+          gap: 8px;
         }
 
         .sidebar-head {
@@ -877,14 +955,18 @@ export default function ChatPage() {
           margin: 0;
           font-size: 0.86rem;
           color: var(--text-muted);
+          overflow-wrap: anywhere;
         }
 
         .chat-shell {
-          min-height: 100vh;
+          min-height: 0;
+          height: 100vh;
           background: var(--chat-bg);
           display: grid;
           grid-template-rows: auto 1fr auto;
           border-left: 1px solid var(--chat-border);
+          overflow: hidden;
+          overflow-x: hidden;
         }
 
         .chat-topbar {
@@ -934,6 +1016,9 @@ export default function ChatPage() {
           margin: 0;
           font-size: 1rem;
           font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .chat-topbar p {
@@ -944,6 +1029,18 @@ export default function ChatPage() {
 
         .panel-meta p {
           margin: 0;
+        }
+
+        .panel-experts {
+          margin: 0;
+          padding: 0;
+          list-style: none;
+          display: grid;
+          gap: 2px;
+        }
+
+        .panel-experts li::before {
+          content: "- ";
         }
 
         .panel-meta {
@@ -1020,6 +1117,7 @@ export default function ChatPage() {
           list-style: none;
           display: grid;
           gap: 8px;
+          overflow-x: hidden;
         }
 
         .conversation-list li {
@@ -1029,6 +1127,7 @@ export default function ChatPage() {
           display: grid;
           gap: 6px;
           background: var(--panel-bg);
+          overflow: hidden;
         }
 
         .conversation-list li:hover .compact {
@@ -1048,6 +1147,7 @@ export default function ChatPage() {
         }
 
         .conversation-item span {
+          display: block;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -1063,6 +1163,8 @@ export default function ChatPage() {
           display: flex;
           align-items: center;
           gap: 8px;
+          min-width: 0;
+          overflow: hidden;
         }
 
         .compact {
@@ -1074,15 +1176,19 @@ export default function ChatPage() {
         }
 
         .thread {
-          overflow: auto;
+          overflow-y: auto;
+          overflow-x: hidden;
           padding: 20px 20px 8px;
+          min-height: 0;
         }
 
         .thread-inner {
           max-width: 800px;
+          width: min(100%, 800px);
           margin: 0 auto;
           display: grid;
           gap: 16px;
+          min-width: 0;
         }
 
         .turn {
@@ -1115,6 +1221,7 @@ export default function ChatPage() {
         .message p {
           margin: 0;
           white-space: pre-wrap;
+          overflow-wrap: anywhere;
         }
 
         .message-meta {
@@ -1225,7 +1332,8 @@ export default function ChatPage() {
             left: 0;
             bottom: 0;
             width: min(86vw, 320px);
-            min-height: 100vh;
+            min-height: 0;
+            height: 100vh;
             border-right: 1px solid var(--sidebar-border);
             border-bottom: none;
             transform: translateX(-110%);
