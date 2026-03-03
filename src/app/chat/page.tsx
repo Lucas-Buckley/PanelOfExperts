@@ -5,7 +5,7 @@
  * Inputs: Optional `panelId` query param, persisted auth session, and user interactions.
  * Outputs: Interactive chat page for conversation selection, prompt submission, and expert response history.
  */
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -248,6 +248,7 @@ export default function ChatPage() {
   const [, setStatusMessage] = useState("");
   const [, setErrorMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const promptSubmitLockRef = useRef(false);
 
   const activePanel = useMemo(() => {
     /**
@@ -511,6 +512,11 @@ export default function ChatPage() {
       return;
     }
 
+    if (promptSubmitLockRef.current || isBusy) {
+      return;
+    }
+    promptSubmitLockRef.current = true;
+
     setStatusMessage("");
     setErrorMessage("");
     setIsBusy(true);
@@ -577,6 +583,7 @@ export default function ChatPage() {
     } catch (error) {
       handleApiError(error, "Failed to submit prompt.");
     } finally {
+      promptSubmitLockRef.current = false;
       setIsBusy(false);
     }
   }
@@ -587,7 +594,12 @@ export default function ChatPage() {
      * Inputs: Textarea keyboard event.
      * Outputs: No return value; conditionally triggers form submit.
      */
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+    if (
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      event.repeat ||
+      event.nativeEvent.isComposing
+    ) {
       return;
     }
 
@@ -626,6 +638,19 @@ export default function ChatPage() {
                   Dashboard
                 </Link>
               </div>
+              <button
+                type="button"
+                className="new-chat-button"
+                onClick={() => {
+                  setActiveConversation(null);
+                  setPromptInput("");
+                  setStatusMessage("");
+                  setErrorMessage("");
+                }}
+                disabled={activePanelId === null || isBusy}
+              >
+                New chat
+              </button>
 
               {activePanel ? (
                 <div className="panel-meta">
@@ -934,6 +959,13 @@ export default function ChatPage() {
 
         .mobile-only {
           display: none;
+        }
+
+        .new-chat-button {
+          width: 100%;
+          justify-content: flex-start;
+          font-weight: 600;
+          border-radius: 10px;
         }
 
         .signed-in {
