@@ -97,6 +97,7 @@ type ApiErrorShape = {
 
 const AUTH_STORAGE_KEY = "poe-auth";
 const INVALID_ACCESS_TOKEN_MESSAGE = "Invalid or expired access token.";
+const AUTO_CONVERSATION_NAME_MAX_LENGTH = 255;
 
 function parsePositiveInteger(rawValue: string | null): number | null {
   /**
@@ -128,6 +129,20 @@ function readRequestedPanelIdFromLocation(): number | null {
 
   const query = new URLSearchParams(window.location.search);
   return parsePositiveInteger(query.get("panelId"));
+}
+
+function buildAutoConversationName(promptContent: string): string {
+  /**
+   * Purpose: Derives a readable default conversation name from first prompt content.
+   * Inputs: Raw prompt text submitted by the user.
+   * Outputs: Normalized conversation name capped to DB-safe length.
+   */
+  const normalized = promptContent.replace(/\s+/g, " ").trim();
+  if (normalized.length === 0) {
+    return "New conversation";
+  }
+
+  return normalized.slice(0, AUTO_CONVERSATION_NAME_MAX_LENGTH);
 }
 
 async function requestJson<T>(args: {
@@ -212,7 +227,7 @@ function writeStoredAuth(auth: AuthSuccess | null): void {
 
 export default function ChatPage() {
   /**
-   * Purpose: Hosts chat workspace controls: panel pick, conversation list, and prompt/response thread.
+   * Purpose: Hosts chat workspace controls: panel-scoped conversation list and prompt/response thread.
    * Inputs: None.
    * Outputs: Chat workspace page JSX with form handlers wired to conversation/prompt API routes.
    */
@@ -223,7 +238,6 @@ export default function ChatPage() {
   const [activePanelId, setActivePanelId] = useState<number | null>(null);
   const [panelConversations, setPanelConversations] = useState<ConversationListItemView[]>([]);
   const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
-  const [newConversationName, setNewConversationName] = useState("");
   const [promptInput, setPromptInput] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -399,119 +413,6 @@ export default function ChatPage() {
     router.replace("/");
   }
 
-  async function handleSelectPanel(panelId: number): Promise<void> {
-    /**
-     * Purpose: Switches active panel and refreshes its conversation list.
-     * Inputs: Panel id selected by the user.
-     * Outputs: No return value; updates panel/conversation state.
-     */
-    if (!auth) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      setActivePanelId(panelId);
-      setActiveConversation(null);
-      await loadPanelConversations(auth.accessToken, panelId);
-      setStatusMessage("Panel chat context updated.");
-    } catch (error) {
-      handleApiError(error, "Failed to load panel conversations.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleRefreshPanels(): Promise<void> {
-    /**
-     * Purpose: Refreshes panel list and keeps active panel valid when ordering/metadata changes.
-     * Inputs: None.
-     * Outputs: No return value; updates panel list and active selection state.
-     */
-    if (!auth) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      const listedPanels = await loadPanels(auth.accessToken);
-      if (activePanelId !== null && !listedPanels.some((panel) => panel.id === activePanelId)) {
-        setActivePanelId(listedPanels.length > 0 ? listedPanels[0].id : null);
-        setActiveConversation(null);
-      }
-      setStatusMessage("Panels refreshed.");
-    } catch (error) {
-      handleApiError(error, "Failed to refresh panels.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleRefreshPanelConversationList(): Promise<void> {
-    /**
-     * Purpose: Refreshes the active panel conversation list with standard error/session handling.
-     * Inputs: None.
-     * Outputs: No return value; updates panel conversation list and status/error state.
-     */
-    if (!auth || activePanelId === null) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      await loadPanelConversations(auth.accessToken, activePanelId);
-      setStatusMessage("Conversation list refreshed.");
-    } catch (error) {
-      handleApiError(error, "Failed to load conversation list.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleCreateConversation(event: FormEvent<HTMLFormElement>): Promise<void> {
-    /**
-     * Purpose: Creates a conversation under the active panel and opens it in conversation view.
-     * Inputs: Submitted create-conversation form event.
-     * Outputs: No return value; updates active conversation state.
-     */
-    event.preventDefault();
-    if (!auth || activePanelId === null) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      const created = await requestJson<ConversationView>({
-        path: "/api/conversations",
-        method: "POST",
-        accessToken: auth.accessToken,
-        body: {
-          panelId: activePanelId,
-          name: newConversationName
-        }
-      });
-      setActiveConversation(sortConversation(created));
-      await loadPanelConversations(auth.accessToken, activePanelId);
-      setNewConversationName("");
-      if (typeof window !== "undefined" && window.matchMedia("(max-width: 1040px)").matches) {
-        setIsSidebarOpen(false);
-      }
-      setStatusMessage(`Opened conversation: ${created.name}`);
-    } catch (error) {
-      handleApiError(error, "Failed to create conversation.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
   async function handleSelectConversationFromList(conversationId: number): Promise<void> {
     /**
      * Purpose: Opens one conversation selected from the active-panel conversation list.
@@ -576,12 +477,17 @@ export default function ChatPage() {
 
   async function handleSubmitPrompt(event: FormEvent<HTMLFormElement>): Promise<void> {
     /**
-     * Purpose: Sends a prompt for the active conversation and appends resulting expert responses to UI history.
+     * Purpose: Sends a prompt, auto-creating a conversation for the active panel when one is not yet selected.
      * Inputs: Submitted prompt form event.
      * Outputs: No return value; updates active conversation prompt history.
      */
     event.preventDefault();
-    if (!auth || !activeConversation) {
+    if (!auth || activePanelId === null) {
+      return;
+    }
+
+    const submittedPrompt = promptInput.trim();
+    if (submittedPrompt.length === 0) {
       return;
     }
 
@@ -589,17 +495,36 @@ export default function ChatPage() {
     setErrorMessage("");
     setIsBusy(true);
     try {
+      let baseConversation = activeConversation;
+      if (!baseConversation) {
+        const autoConversationName = buildAutoConversationName(submittedPrompt);
+        const createdConversation = await requestJson<ConversationView>({
+          path: "/api/conversations",
+          method: "POST",
+          accessToken: auth.accessToken,
+          body: {
+            panelId: activePanelId,
+            name: autoConversationName
+          }
+        });
+        baseConversation = sortConversation(createdConversation);
+        setActiveConversation(baseConversation);
+        await loadPanelConversations(auth.accessToken, activePanelId);
+      }
+
       const created = await requestJson<PromptCreateResponse>({
-        path: `/api/conversations/${activeConversation.id}/prompts`,
+        path: `/api/conversations/${baseConversation.id}/prompts`,
         method: "POST",
         accessToken: auth.accessToken,
         body: {
-          content: promptInput
+          content: submittedPrompt
         }
       });
 
       setActiveConversation((current) => {
-        if (!current || current.id !== created.prompt.conversationId) {
+        const currentConversation =
+          current && current.id === created.prompt.conversationId ? current : baseConversation;
+        if (!currentConversation) {
           return current;
         }
 
@@ -611,15 +536,15 @@ export default function ChatPage() {
         };
 
         return sortConversation({
-          ...current,
-          prompts: [...current.prompts, appendedPrompt]
+          ...currentConversation,
+          prompts: [...currentConversation.prompts, appendedPrompt]
         });
       });
 
       setPromptInput("");
       setStatusMessage("Prompt submitted.");
       await loadPanels(auth.accessToken);
-      await loadPanelConversations(auth.accessToken, activeConversation.panelId);
+      await loadPanelConversations(auth.accessToken, activePanelId);
     } catch (error) {
       handleApiError(error, "Failed to submit prompt.");
     } finally {
@@ -639,8 +564,18 @@ export default function ChatPage() {
           />
           <aside className="sidebar-shell">
             <div className="sidebar-head">
-              <h1>Panel of Experts</h1>
-              <p>Chat Workspace</p>
+              <div className="sidebar-title">
+                <h1>Panel of Experts</h1>
+                <p>Chat Workspace</p>
+              </div>
+              <div className="sidebar-account">
+                <p className="signed-in">
+                  Signed in as <strong>{auth.account.email}</strong>
+                </p>
+                <button type="button" onClick={handleLogout} disabled={isBusy}>
+                  Logout
+                </button>
+              </div>
             </div>
 
             <div className="sidebar-actions">
@@ -654,49 +589,6 @@ export default function ChatPage() {
               <Link className="button-link" href="/">
                 Dashboard
               </Link>
-              <button type="button" onClick={handleLogout} disabled={isBusy}>
-                Logout
-              </button>
-            </div>
-
-            <p className="signed-in">
-              Signed in as <strong>{auth.account.email}</strong>
-            </p>
-
-            <label>
-              <span className="label-title">Active Panel</span>
-              <select
-                value={activePanelId ?? ""}
-                onChange={(event) => {
-                  const panelId = Number(event.target.value);
-                  if (Number.isInteger(panelId) && panelId > 0) {
-                    void handleSelectPanel(panelId);
-                  }
-                }}
-                disabled={panels.length === 0 || isBusy}
-              >
-                <option value="" disabled>
-                  {panels.length === 0 ? "No panels available" : "Select a panel"}
-                </option>
-                {panels.map((panel) => (
-                  <option key={panel.id} value={panel.id}>
-                    {panel.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className="action-row">
-              <button type="button" onClick={() => void handleRefreshPanels()} disabled={isBusy}>
-                Refresh Panels
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleRefreshPanelConversationList()}
-                disabled={isBusy || activePanelId === null}
-              >
-                Refresh Conversations
-              </button>
             </div>
 
             {activePanel ? (
@@ -711,23 +603,6 @@ export default function ChatPage() {
               <p className="hint">Create/select a panel on the dashboard before chatting.</p>
             )}
 
-            <form className="new-conversation" onSubmit={(event) => void handleCreateConversation(event)}>
-              <h3>New Chat</h3>
-              <div className="new-conversation-row">
-                <input
-                  value={newConversationName}
-                  onChange={(event) => setNewConversationName(event.target.value)}
-                  placeholder="Conversation name"
-                  aria-label="Conversation name"
-                  maxLength={255}
-                  required
-                />
-                <button type="submit" disabled={activePanelId === null || isBusy}>
-                  Create
-                </button>
-              </div>
-            </form>
-
             {panelConversations.length === 0 ? (
               <p className="hint">No conversations yet for this panel.</p>
             ) : null}
@@ -735,16 +610,15 @@ export default function ChatPage() {
               <ul className="conversation-list">
                 {panelConversations.map((conversation) => (
                   <li key={conversation.id}>
-                    <button
-                      type="button"
-                      className={`conversation-item ${activeConversation?.id === conversation.id ? "selected" : ""}`}
-                      onClick={() => void handleSelectConversationFromList(conversation.id)}
-                      disabled={isBusy}
-                    >
-                      <span>{conversation.name}</span>
-                    </button>
                     <div className="conversation-row">
-                      <small>{formatTimestamp(conversation.lastPromptedAt)}</small>
+                      <button
+                        type="button"
+                        className={`conversation-item ${activeConversation?.id === conversation.id ? "selected" : ""}`}
+                        onClick={() => void handleSelectConversationFromList(conversation.id)}
+                        disabled={isBusy}
+                      >
+                        <span>{conversation.name}</span>
+                      </button>
                       <button
                         type="button"
                         className="danger compact"
@@ -775,7 +649,7 @@ export default function ChatPage() {
                   <p>
                     {activeConversation
                       ? `Last prompted: ${formatTimestamp(activeConversation.lastPromptedAt)}`
-                      : "Create or open a conversation from the left panel."}
+                      : "Send a prompt to start a new conversation, or pick one from the left panel."}
                   </p>
                 </div>
               </div>
@@ -830,7 +704,7 @@ export default function ChatPage() {
                 />
               </label>
               <div className="composer-actions">
-                <button className="send-button" type="submit" disabled={!activeConversation || isBusy}>
+                <button className="send-button" type="submit" disabled={activePanelId === null || isBusy}>
                   Send
                 </button>
               </div>
@@ -848,25 +722,25 @@ export default function ChatPage() {
 
       <style jsx>{`
         .page {
-          --app-bg: #ffffff;
-          --sidebar-bg: #f2f2f5;
-          --sidebar-border: #e2e2e7;
+          --app-bg: linear-gradient(170deg, #f4f7ff 0%, #edf8f5 45%, #fff6eb 100%);
+          --sidebar-bg: rgba(255, 255, 255, 0.9);
+          --sidebar-border: #ccd4e5;
           --chat-bg: #ffffff;
-          --chat-border: #e8e8ec;
-          --text-main: #1f2328;
-          --text-muted: #6d727c;
-          --button-border: #d5d7de;
-          --button-bg: #ffffff;
-          --button-hover: #f4f4f7;
+          --chat-border: #d7e0ee;
+          --text-main: #1f2633;
+          --text-muted: #556176;
+          --button-border: #44577a;
+          --button-bg: #eef4ff;
+          --button-hover: #e2ebff;
           --input-bg: #ffffff;
-          --input-border: #d8dbe3;
-          --panel-bg: #f7f7fa;
-          --panel-border: #e1e4eb;
+          --input-border: #c5cedd;
+          --panel-bg: #f9fbff;
+          --panel-border: #ced8eb;
           --user-message-bg: #ececf1;
           --assistant-message-bg: #ffffff;
           --assistant-message-border: #ececf1;
           --composer-bg: #ffffff;
-          --composer-border: #d8dbe3;
+          --composer-border: #c5cedd;
           --status-color: #1b5e20;
           --error-color: #a11818;
           --danger-border: #9c2a2a;
@@ -885,25 +759,25 @@ export default function ChatPage() {
 
         @media (prefers-color-scheme: dark) {
           .page {
-            --app-bg: #212121;
-            --sidebar-bg: #171717;
-            --sidebar-border: #2a2a2a;
+            --app-bg: linear-gradient(170deg, #0d1117 0%, #111827 45%, #161b22 100%);
+            --sidebar-bg: rgba(20, 28, 40, 0.92);
+            --sidebar-border: #334155;
             --chat-bg: #212121;
-            --chat-border: #2c2c2c;
-            --text-main: #ececec;
-            --text-muted: #9ca3af;
-            --button-border: #3a3a3a;
-            --button-bg: #2a2a2a;
-            --button-hover: #343434;
-            --input-bg: #2b2b2b;
-            --input-border: #3b3b3b;
-            --panel-bg: #262626;
-            --panel-border: #333333;
+            --chat-border: #334155;
+            --text-main: #e5ebf5;
+            --text-muted: #a5b4ca;
+            --button-border: #64748b;
+            --button-bg: #1e293b;
+            --button-hover: #273449;
+            --input-bg: #111827;
+            --input-border: #475569;
+            --panel-bg: #0f172a;
+            --panel-border: #334155;
             --user-message-bg: #303030;
             --assistant-message-bg: #212121;
             --assistant-message-border: #333333;
             --composer-bg: #2a2a2a;
-            --composer-border: #3b3b3b;
+            --composer-border: #475569;
             --status-color: #86efac;
             --error-color: #fca5a5;
             --danger-border: #f87171;
@@ -938,6 +812,18 @@ export default function ChatPage() {
           gap: 12px;
           overflow: auto;
           z-index: 4;
+          backdrop-filter: blur(6px);
+        }
+
+        .sidebar-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 10px;
+        }
+
+        .sidebar-title {
+          min-width: 0;
         }
 
         .sidebar-head h1 {
@@ -951,9 +837,18 @@ export default function ChatPage() {
           font-size: 0.84rem;
         }
 
+        .sidebar-account {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 8px;
+          min-width: 0;
+          margin-left: auto;
+        }
+
         .sidebar-actions {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 8px;
         }
 
@@ -965,28 +860,16 @@ export default function ChatPage() {
           margin: 0;
           font-size: 0.84rem;
           color: var(--text-muted);
-        }
-
-        .label-title {
-          font-size: 0.82rem;
-          color: var(--text-muted);
+          text-align: right;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .hint {
           margin: 0;
           font-size: 0.86rem;
           color: var(--text-muted);
-        }
-
-        .new-conversation h3 {
-          margin: 0;
-          font-size: 0.94rem;
-        }
-
-        .new-conversation-row {
-          display: grid;
-          gap: 8px;
-          grid-template-columns: 1fr auto;
         }
 
         .chat-shell {
@@ -1103,12 +986,6 @@ export default function ChatPage() {
           cursor: not-allowed;
         }
 
-        .action-row {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
         .conversation-list {
           margin: 0;
           padding: 0;
@@ -1131,7 +1008,9 @@ export default function ChatPage() {
         }
 
         .conversation-item {
-          width: 100%;
+          width: auto;
+          flex: 1;
+          min-width: 0;
           justify-content: flex-start;
           text-align: left;
           border: 1px solid transparent;
@@ -1154,13 +1033,8 @@ export default function ChatPage() {
 
         .conversation-row {
           display: flex;
-          justify-content: space-between;
           align-items: center;
           gap: 8px;
-        }
-
-        .conversation-row small {
-          color: var(--text-muted);
         }
 
         .compact {
@@ -1358,6 +1232,19 @@ export default function ChatPage() {
 
           .sidebar-actions {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .sidebar-head {
+            flex-direction: column;
+          }
+
+          .sidebar-account {
+            width: 100%;
+            justify-content: space-between;
+          }
+
+          .signed-in {
+            text-align: left;
           }
         }
       `}</style>
