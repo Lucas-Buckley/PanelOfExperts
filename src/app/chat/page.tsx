@@ -568,14 +568,6 @@ export default function ChatPage() {
                 <h1>Panel of Experts</h1>
                 <p>Chat Workspace</p>
               </div>
-              <div className="sidebar-account">
-                <p className="signed-in">
-                  Signed in as <strong>{auth.account.email}</strong>
-                </p>
-                <button type="button" onClick={handleLogout} disabled={isBusy}>
-                  Logout
-                </button>
-              </div>
             </div>
 
             <div className="sidebar-actions">
@@ -596,8 +588,12 @@ export default function ChatPage() {
                 <p>
                   <strong>{activePanel.name}</strong>
                 </p>
-                <p>Last prompted: {formatTimestamp(activePanel.lastPromptedAt)}</p>
-                <p>Experts: {activePanel.experts.length}</p>
+                <p>
+                  Experts:{" "}
+                  {activePanel.experts.length > 0
+                    ? activePanel.experts.map((expert) => expert.name).join(", ")
+                    : "None"}
+                </p>
               </div>
             ) : (
               <p className="hint">Create/select a panel on the dashboard before chatting.</p>
@@ -637,20 +633,30 @@ export default function ChatPage() {
           <section className="chat-shell">
             <div className="chat-topbar">
               <div className="chat-topbar-main">
-                <button
-                  type="button"
-                  className="sidebar-toggle"
-                  onClick={() => setIsSidebarOpen(true)}
-                >
-                  Conversations
-                </button>
-                <div>
-                  <h2>{activeConversation ? activeConversation.name : "No active conversation"}</h2>
-                  <p>
-                    {activeConversation
-                      ? `Last prompted: ${formatTimestamp(activeConversation.lastPromptedAt)}`
-                      : "Send a prompt to start a new conversation, or pick one from the left panel."}
+                <div className="chat-topbar-left">
+                  <button
+                    type="button"
+                    className="sidebar-toggle"
+                    onClick={() => setIsSidebarOpen(true)}
+                  >
+                    Conversations
+                  </button>
+                  <div>
+                    <h2>{activeConversation ? activeConversation.name : "No active conversation"}</h2>
+                    <p>
+                      {activeConversation
+                        ? `Last prompted: ${formatTimestamp(activeConversation.lastPromptedAt)}`
+                        : "Send a prompt to start a new conversation, or pick one from the left panel."}
+                    </p>
+                  </div>
+                </div>
+                <div className="chat-account">
+                  <p className="signed-in">
+                    Signed in as <strong>{auth.account.email}</strong>
                   </p>
+                  <button type="button" onClick={handleLogout} disabled={isBusy}>
+                    Logout
+                  </button>
                 </div>
               </div>
             </div>
@@ -722,25 +728,31 @@ export default function ChatPage() {
 
       <style jsx>{`
         .page {
-          --app-bg: linear-gradient(170deg, #f4f7ff 0%, #edf8f5 45%, #fff6eb 100%);
-          --sidebar-bg: rgba(255, 255, 255, 0.9);
-          --sidebar-border: #ccd4e5;
-          --chat-bg: #ffffff;
-          --chat-border: #d7e0ee;
+          --bg-start: #f4f7ff;
+          --bg-mid: #edf8f5;
+          --bg-end: #fff6eb;
+          --card-bg: rgba(255, 255, 255, 0.9);
+          --card-border: #ccd4e5;
+          --form-bg: #fdfefe;
+          --form-border: #dde4f1;
           --text-main: #1f2633;
           --text-muted: #556176;
           --button-border: #44577a;
           --button-bg: #eef4ff;
           --button-hover: #e2ebff;
-          --input-bg: #ffffff;
-          --input-border: #c5cedd;
+          --field-border: #c5cedd;
+          --input-bg: var(--card-bg);
           --panel-bg: #f9fbff;
           --panel-border: #ced8eb;
-          --user-message-bg: #ececf1;
-          --assistant-message-bg: #ffffff;
-          --assistant-message-border: #ececf1;
-          --composer-bg: #ffffff;
-          --composer-border: #c5cedd;
+          --sidebar-bg: var(--card-bg);
+          --sidebar-border: var(--card-border);
+          --chat-bg: var(--card-bg);
+          --chat-border: var(--card-border);
+          --user-message-bg: var(--button-bg);
+          --assistant-message-bg: var(--panel-bg);
+          --assistant-message-border: var(--panel-border);
+          --composer-bg: var(--form-bg);
+          --composer-border: var(--form-border);
           --status-color: #1b5e20;
           --error-color: #a11818;
           --danger-border: #9c2a2a;
@@ -748,9 +760,9 @@ export default function ChatPage() {
           --danger-text: #6f1111;
           color-scheme: light;
           min-height: 100vh;
-          background: var(--app-bg);
+          background: linear-gradient(170deg, var(--bg-start) 0%, var(--bg-mid) 45%, var(--bg-end) 100%);
           color: var(--text-main);
-          font-family: "Segoe UI", Arial, sans-serif;
+          font-family: "Trebuchet MS", "Segoe UI", sans-serif;
           display: grid;
           align-content: start;
           grid-template-rows: 1fr auto auto;
@@ -759,25 +771,31 @@ export default function ChatPage() {
 
         @media (prefers-color-scheme: dark) {
           .page {
-            --app-bg: linear-gradient(170deg, #0d1117 0%, #111827 45%, #161b22 100%);
-            --sidebar-bg: rgba(20, 28, 40, 0.92);
-            --sidebar-border: #334155;
-            --chat-bg: #212121;
-            --chat-border: #334155;
+            --bg-start: #0d1117;
+            --bg-mid: #111827;
+            --bg-end: #161b22;
+            --card-bg: rgba(20, 28, 40, 0.92);
+            --card-border: #334155;
+            --form-bg: #111827;
+            --form-border: #334155;
             --text-main: #e5ebf5;
             --text-muted: #a5b4ca;
             --button-border: #64748b;
             --button-bg: #1e293b;
             --button-hover: #273449;
-            --input-bg: #111827;
-            --input-border: #475569;
+            --field-border: #475569;
+            --input-bg: var(--card-bg);
             --panel-bg: #0f172a;
             --panel-border: #334155;
-            --user-message-bg: #303030;
-            --assistant-message-bg: #212121;
-            --assistant-message-border: #333333;
-            --composer-bg: #2a2a2a;
-            --composer-border: #475569;
+            --sidebar-bg: var(--card-bg);
+            --sidebar-border: var(--card-border);
+            --chat-bg: var(--card-bg);
+            --chat-border: var(--card-border);
+            --user-message-bg: var(--button-bg);
+            --assistant-message-bg: var(--panel-bg);
+            --assistant-message-border: var(--panel-border);
+            --composer-bg: var(--form-bg);
+            --composer-border: var(--form-border);
             --status-color: #86efac;
             --error-color: #fca5a5;
             --danger-border: #f87171;
@@ -817,9 +835,7 @@ export default function ChatPage() {
 
         .sidebar-head {
           display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 10px;
+          align-items: center;
         }
 
         .sidebar-title {
@@ -835,15 +851,6 @@ export default function ChatPage() {
           margin: 3px 0 0;
           color: var(--text-muted);
           font-size: 0.84rem;
-        }
-
-        .sidebar-account {
-          display: flex;
-          align-items: center;
-          justify-content: flex-end;
-          gap: 8px;
-          min-width: 0;
-          margin-left: auto;
         }
 
         .sidebar-actions {
@@ -894,8 +901,29 @@ export default function ChatPage() {
 
         .chat-topbar-main {
           display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: flex-start;
+        }
+
+        .chat-topbar-left {
+          display: flex;
           gap: 12px;
           align-items: flex-start;
+          min-width: 0;
+        }
+
+        .chat-topbar-left > div {
+          min-width: 0;
+        }
+
+        .chat-account {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 8px;
+          min-width: 0;
+          margin-left: auto;
         }
 
         .sidebar-toggle {
@@ -1225,6 +1253,16 @@ export default function ChatPage() {
             position: static;
           }
 
+          .chat-topbar-main {
+            flex-direction: column;
+            gap: 10px;
+          }
+
+          .chat-account {
+            width: 100%;
+            justify-content: space-between;
+          }
+
           .mobile-only,
           .sidebar-toggle {
             display: inline-flex;
@@ -1232,15 +1270,6 @@ export default function ChatPage() {
 
           .sidebar-actions {
             grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .sidebar-head {
-            flex-direction: column;
-          }
-
-          .sidebar-account {
-            width: 100%;
-            justify-content: space-between;
           }
 
           .signed-in {
