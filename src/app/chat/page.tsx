@@ -225,6 +225,7 @@ export default function ChatPage() {
   const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
   const [newConversationName, setNewConversationName] = useState("");
   const [promptInput, setPromptInput] = useState("");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -500,6 +501,9 @@ export default function ChatPage() {
       setActiveConversation(sortConversation(created));
       await loadPanelConversations(auth.accessToken, activePanelId);
       setNewConversationName("");
+      if (typeof window !== "undefined" && window.matchMedia("(max-width: 1040px)").matches) {
+        setIsSidebarOpen(false);
+      }
       setStatusMessage(`Opened conversation: ${created.name}`);
     } catch (error) {
       handleApiError(error, "Failed to create conversation.");
@@ -523,6 +527,9 @@ export default function ChatPage() {
     setIsBusy(true);
     try {
       const loadedConversation = await openConversationById(auth.accessToken, conversationId);
+      if (typeof window !== "undefined" && window.matchMedia("(max-width: 1040px)").matches) {
+        setIsSidebarOpen(false);
+      }
       setStatusMessage(`Loaded conversation: ${loadedConversation.name}.`);
     } catch (error) {
       handleApiError(error, "Failed to open conversation.");
@@ -622,32 +629,42 @@ export default function ChatPage() {
 
   return (
     <main className="page">
-      <header className="top-bar">
-        <div>
-          <h1>Panel of Experts</h1>
-          <p className="subtitle">Chat Workspace</p>
-        </div>
-        <div className="top-actions">
-          <Link className="button-link" href="/">
-            Back to Dashboard
-          </Link>
-          {auth ? (
-            <p>
+      {auth ? (
+        <div className={`workspace ${isSidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
+          <button
+            type="button"
+            className="sidebar-backdrop"
+            aria-label="Close conversation sidebar"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+          <aside className="sidebar-shell">
+            <div className="sidebar-head">
+              <h1>Panel of Experts</h1>
+              <p>Chat Workspace</p>
+            </div>
+
+            <div className="sidebar-actions">
+              <button
+                type="button"
+                className="mobile-only"
+                onClick={() => setIsSidebarOpen(false)}
+              >
+                Close
+              </button>
+              <Link className="button-link" href="/">
+                Dashboard
+              </Link>
+              <button type="button" onClick={handleLogout} disabled={isBusy}>
+                Logout
+              </button>
+            </div>
+
+            <p className="signed-in">
               Signed in as <strong>{auth.account.email}</strong>
             </p>
-          ) : null}
-          <button type="button" onClick={handleLogout} disabled={isBusy}>
-            Logout
-          </button>
-        </div>
-      </header>
 
-      {auth ? (
-        <div className="workspace">
-          <aside className="sidebar card">
-            <h2>Conversations</h2>
             <label>
-              Active Panel
+              <span className="label-title">Active Panel</span>
               <select
                 value={activePanelId ?? ""}
                 onChange={(event) => {
@@ -691,40 +708,43 @@ export default function ChatPage() {
                 <p>Experts: {activePanel.experts.length}</p>
               </div>
             ) : (
-              <p>Create/select a panel on the dashboard before chatting.</p>
+              <p className="hint">Create/select a panel on the dashboard before chatting.</p>
             )}
 
-            <form onSubmit={(event) => void handleCreateConversation(event)}>
-              <h3>New Conversation</h3>
-              <label>
-                Name
+            <form className="new-conversation" onSubmit={(event) => void handleCreateConversation(event)}>
+              <h3>New Chat</h3>
+              <div className="new-conversation-row">
                 <input
                   value={newConversationName}
                   onChange={(event) => setNewConversationName(event.target.value)}
+                  placeholder="Conversation name"
+                  aria-label="Conversation name"
                   maxLength={255}
                   required
                 />
-              </label>
-              <button type="submit" disabled={activePanelId === null || isBusy}>
-                Create Conversation
-              </button>
+                <button type="submit" disabled={activePanelId === null || isBusy}>
+                  Create
+                </button>
+              </div>
             </form>
 
-            {panelConversations.length === 0 ? <p>No conversations yet for this panel.</p> : null}
+            {panelConversations.length === 0 ? (
+              <p className="hint">No conversations yet for this panel.</p>
+            ) : null}
             {panelConversations.length > 0 ? (
               <ul className="conversation-list">
                 {panelConversations.map((conversation) => (
                   <li key={conversation.id}>
                     <button
                       type="button"
-                      className={activeConversation?.id === conversation.id ? "selected" : ""}
+                      className={`conversation-item ${activeConversation?.id === conversation.id ? "selected" : ""}`}
                       onClick={() => void handleSelectConversationFromList(conversation.id)}
                       disabled={isBusy}
                     >
-                      {conversation.name}
+                      <span>{conversation.name}</span>
                     </button>
                     <div className="conversation-row">
-                      <small>Last prompted: {formatTimestamp(conversation.lastPromptedAt)}</small>
+                      <small>{formatTimestamp(conversation.lastPromptedAt)}</small>
                       <button
                         type="button"
                         className="danger compact"
@@ -740,54 +760,67 @@ export default function ChatPage() {
             ) : null}
           </aside>
 
-          <section className="chat-column card">
-            <div className="chat-header">
-              <h2>{activeConversation ? activeConversation.name : "No active conversation"}</h2>
-              <p>
-                {activeConversation
-                  ? `Last prompted: ${formatTimestamp(activeConversation.lastPromptedAt)}`
-                  : "Create or open a conversation from the left panel."}
-              </p>
+          <section className="chat-shell">
+            <div className="chat-topbar">
+              <div className="chat-topbar-main">
+                <button
+                  type="button"
+                  className="sidebar-toggle"
+                  onClick={() => setIsSidebarOpen(true)}
+                >
+                  Conversations
+                </button>
+                <div>
+                  <h2>{activeConversation ? activeConversation.name : "No active conversation"}</h2>
+                  <p>
+                    {activeConversation
+                      ? `Last prompted: ${formatTimestamp(activeConversation.lastPromptedAt)}`
+                      : "Create or open a conversation from the left panel."}
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="thread">
-              {activeConversation ? (
-                activeConversation.prompts.length > 0 ? (
-                  activeConversation.prompts.map((prompt) => (
-                    <div key={prompt.id} className="turn">
-                      <article className="message user-message">
-                        <div className="message-meta">
-                          <strong>You</strong>
-                          <span>{formatTimestamp(prompt.createdAt)}</span>
-                        </div>
-                        <p>{prompt.content}</p>
-                      </article>
-
-                      {prompt.responses.map((response) => (
-                        <article key={response.id} className="message assistant-message">
+              <div className="thread-inner">
+                {activeConversation ? (
+                  activeConversation.prompts.length > 0 ? (
+                    activeConversation.prompts.map((prompt) => (
+                      <div key={prompt.id} className="turn">
+                        <article className="message user-message">
                           <div className="message-meta">
-                            <strong>
-                              {expertNameById.get(response.expertId) ??
-                                `Expert ${response.sequence}`}
-                            </strong>
-                            <span>{formatTimestamp(response.createdAt)}</span>
+                            <strong>You</strong>
+                            <span>{formatTimestamp(prompt.createdAt)}</span>
                           </div>
-                          <p>{response.content}</p>
+                          <p>{prompt.content}</p>
                         </article>
-                      ))}
-                    </div>
-                  ))
+
+                        {prompt.responses.map((response) => (
+                          <article key={response.id} className="message assistant-message">
+                            <div className="message-meta">
+                              <strong>
+                                {expertNameById.get(response.expertId) ??
+                                  `Expert ${response.sequence}`}
+                              </strong>
+                              <span>{formatTimestamp(response.createdAt)}</span>
+                            </div>
+                            <p>{response.content}</p>
+                          </article>
+                        ))}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="empty-state">No prompts yet. Send your first prompt below.</p>
+                  )
                 ) : (
-                  <p className="empty-state">No prompts yet. Send your first prompt below.</p>
-                )
-              ) : (
-                <p className="empty-state">No active conversation selected.</p>
-              )}
+                  <p className="empty-state">No active conversation selected.</p>
+                )}
+              </div>
             </div>
 
             <form className="composer" onSubmit={(event) => void handleSubmitPrompt(event)}>
-              <label>
-                Message
+              <label className="composer-label">
+                <span className="visually-hidden">Message</span>
                 <textarea
                   value={promptInput}
                   onChange={(event) => setPromptInput(event.target.value)}
@@ -796,14 +829,16 @@ export default function ChatPage() {
                   required
                 />
               </label>
-              <button type="submit" disabled={!activeConversation || isBusy}>
-                Send
-              </button>
+              <div className="composer-actions">
+                <button className="send-button" type="submit" disabled={!activeConversation || isBusy}>
+                  Send
+                </button>
+              </div>
             </form>
           </section>
         </div>
       ) : (
-        <section className="card">
+        <section className="redirect-card">
           <p>Redirecting to login...</p>
         </section>
       )}
@@ -813,22 +848,25 @@ export default function ChatPage() {
 
       <style jsx>{`
         .page {
-          --bg-start: #f4f7ff;
-          --bg-mid: #edf8f5;
-          --bg-end: #fff6eb;
-          --text-main: #1f2633;
-          --card-bg: rgba(255, 255, 255, 0.9);
-          --card-border: #ccd4e5;
-          --form-bg: #fdfefe;
-          --form-border: #dde4f1;
-          --field-border: #c5cedd;
-          --button-border: #44577a;
-          --button-bg: #eef4ff;
-          --panel-bg: #f9fbff;
-          --panel-border: #ced8eb;
-          --user-message-bg: #dfe9ff;
-          --assistant-message-bg: #f8fbff;
-          --assistant-message-border: #d8e1f0;
+          --app-bg: #ffffff;
+          --sidebar-bg: #f2f2f5;
+          --sidebar-border: #e2e2e7;
+          --chat-bg: #ffffff;
+          --chat-border: #e8e8ec;
+          --text-main: #1f2328;
+          --text-muted: #6d727c;
+          --button-border: #d5d7de;
+          --button-bg: #ffffff;
+          --button-hover: #f4f4f7;
+          --input-bg: #ffffff;
+          --input-border: #d8dbe3;
+          --panel-bg: #f7f7fa;
+          --panel-border: #e1e4eb;
+          --user-message-bg: #ececf1;
+          --assistant-message-bg: #ffffff;
+          --assistant-message-border: #ececf1;
+          --composer-bg: #ffffff;
+          --composer-border: #d8dbe3;
           --status-color: #1b5e20;
           --error-color: #a11818;
           --danger-border: #9c2a2a;
@@ -836,33 +874,36 @@ export default function ChatPage() {
           --danger-text: #6f1111;
           color-scheme: light;
           min-height: 100vh;
-          padding: 20px;
-          background: linear-gradient(170deg, var(--bg-start) 0%, var(--bg-mid) 45%, var(--bg-end) 100%);
+          background: var(--app-bg);
           color: var(--text-main);
-          font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+          font-family: "Segoe UI", Arial, sans-serif;
           display: grid;
           align-content: start;
-          gap: 12px;
+          grid-template-rows: 1fr auto auto;
+          gap: 6px;
         }
 
         @media (prefers-color-scheme: dark) {
           .page {
-            --bg-start: #0d1117;
-            --bg-mid: #111827;
-            --bg-end: #161b22;
-            --text-main: #e5ebf5;
-            --card-bg: rgba(20, 28, 40, 0.92);
-            --card-border: #334155;
-            --form-bg: #111827;
-            --form-border: #334155;
-            --field-border: #475569;
-            --button-border: #64748b;
-            --button-bg: #1e293b;
-            --panel-bg: #0f172a;
-            --panel-border: #334155;
-            --user-message-bg: #1d355f;
-            --assistant-message-bg: #0f172a;
-            --assistant-message-border: #334155;
+            --app-bg: #212121;
+            --sidebar-bg: #171717;
+            --sidebar-border: #2a2a2a;
+            --chat-bg: #212121;
+            --chat-border: #2c2c2c;
+            --text-main: #ececec;
+            --text-muted: #9ca3af;
+            --button-border: #3a3a3a;
+            --button-bg: #2a2a2a;
+            --button-hover: #343434;
+            --input-bg: #2b2b2b;
+            --input-border: #3b3b3b;
+            --panel-bg: #262626;
+            --panel-border: #333333;
+            --user-message-bg: #303030;
+            --assistant-message-bg: #212121;
+            --assistant-message-border: #333333;
+            --composer-bg: #2a2a2a;
+            --composer-border: #3b3b3b;
             --status-color: #86efac;
             --error-color: #fca5a5;
             --danger-border: #f87171;
@@ -872,68 +913,124 @@ export default function ChatPage() {
           }
         }
 
-        .top-bar {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-
-        .top-bar h1 {
-          margin: 0;
-          font-size: 2rem;
-        }
-
-        .subtitle {
-          margin: 4px 0 0;
-        }
-
-        .top-actions {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-        }
-
-        .top-actions p {
-          margin: 0;
-        }
-
         .workspace {
           display: grid;
-          gap: 12px;
-          grid-template-columns: minmax(260px, 340px) 1fr;
+          grid-template-columns: minmax(280px, 320px) 1fr;
           align-items: start;
+          min-height: 100vh;
+          position: relative;
         }
 
-        @media (max-width: 980px) {
+        @media (max-width: 1040px) {
           .workspace {
             grid-template-columns: 1fr;
+            min-height: auto;
           }
         }
 
-        .card {
-          background: var(--card-bg);
-          border: 1px solid var(--card-border);
-          border-radius: 12px;
+        .sidebar-shell {
+          background: var(--sidebar-bg);
+          border-right: 1px solid var(--sidebar-border);
+          min-height: 100vh;
           padding: 14px;
           display: grid;
-          gap: 10px;
-        }
-
-        .sidebar {
-          max-height: calc(100vh - 140px);
+          align-content: start;
+          gap: 12px;
           overflow: auto;
+          z-index: 4;
         }
 
-        .chat-column {
-          min-height: calc(100vh - 140px);
+        .sidebar-head h1 {
+          margin: 0;
+          font-size: 1.2rem;
+        }
+
+        .sidebar-head p {
+          margin: 3px 0 0;
+          color: var(--text-muted);
+          font-size: 0.84rem;
+        }
+
+        .sidebar-actions {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 8px;
+        }
+
+        .mobile-only {
+          display: none;
+        }
+
+        .signed-in {
+          margin: 0;
+          font-size: 0.84rem;
+          color: var(--text-muted);
+        }
+
+        .label-title {
+          font-size: 0.82rem;
+          color: var(--text-muted);
+        }
+
+        .hint {
+          margin: 0;
+          font-size: 0.86rem;
+          color: var(--text-muted);
+        }
+
+        .new-conversation h3 {
+          margin: 0;
+          font-size: 0.94rem;
+        }
+
+        .new-conversation-row {
+          display: grid;
+          gap: 8px;
+          grid-template-columns: 1fr auto;
+        }
+
+        .chat-shell {
+          min-height: 100vh;
+          background: var(--chat-bg);
+          display: grid;
           grid-template-rows: auto 1fr auto;
+          border-left: 1px solid var(--chat-border);
         }
 
-        .chat-header p,
+        .chat-topbar {
+          padding: 14px 24px;
+          border-bottom: 1px solid var(--chat-border);
+          display: grid;
+          gap: 4px;
+          position: sticky;
+          top: 0;
+          z-index: 1;
+          background: color-mix(in srgb, var(--chat-bg) 92%, transparent);
+          backdrop-filter: blur(6px);
+        }
+
+        .chat-topbar-main {
+          display: flex;
+          gap: 12px;
+          align-items: flex-start;
+        }
+
+        .sidebar-toggle {
+          display: none;
+        }
+
+        .chat-topbar h2 {
+          margin: 0;
+          font-size: 1rem;
+          font-weight: 600;
+        }
+
+        .chat-topbar p {
+          margin: 0;
+          color: var(--text-muted);
+          font-size: 0.84rem;
+        }
+
         .panel-meta p {
           margin: 0;
         }
@@ -945,15 +1042,16 @@ export default function ChatPage() {
           background: var(--panel-bg);
           display: grid;
           gap: 4px;
+          font-size: 0.84rem;
         }
 
         form {
           display: grid;
           gap: 8px;
           padding: 10px;
-          border: 1px solid var(--form-border);
+          border: 1px solid var(--panel-border);
           border-radius: 10px;
-          background: var(--form-bg);
+          background: var(--panel-bg);
         }
 
         label {
@@ -976,7 +1074,7 @@ export default function ChatPage() {
           border: 1px solid var(--field-border);
           border-radius: 8px;
           padding: 8px 10px;
-          background: var(--card-bg);
+          background: var(--input-bg);
           color: var(--text-main);
         }
 
@@ -992,6 +1090,12 @@ export default function ChatPage() {
           display: inline-flex;
           align-items: center;
           justify-content: center;
+          transition: background-color 120ms ease;
+        }
+
+        button:hover,
+        .button-link:hover {
+          background: var(--button-hover);
         }
 
         button:disabled {
@@ -1014,23 +1118,38 @@ export default function ChatPage() {
         }
 
         .conversation-list li {
-          border: 1px solid var(--form-border);
+          border: 1px solid var(--panel-border);
           border-radius: 10px;
-          padding: 8px;
+          padding: 6px;
           display: grid;
           gap: 6px;
-          background: var(--form-bg);
+          background: var(--panel-bg);
         }
 
-        .conversation-list button {
+        .conversation-list li:hover .compact {
+          opacity: 1;
+        }
+
+        .conversation-item {
           width: 100%;
           justify-content: flex-start;
           text-align: left;
+          border: 1px solid transparent;
+          background: transparent;
+          padding: 8px;
+          overflow: hidden;
         }
 
-        .conversation-list button.selected {
-          border-color: #3c5e95;
-          font-weight: 700;
+        .conversation-item span {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .conversation-item.selected {
+          background: var(--button-bg);
+          border-color: var(--button-border);
+          font-weight: 600;
         }
 
         .conversation-row {
@@ -1040,47 +1159,55 @@ export default function ChatPage() {
           gap: 8px;
         }
 
+        .conversation-row small {
+          color: var(--text-muted);
+        }
+
         .compact {
           padding: 4px 8px;
           font-size: 0.86rem;
           width: auto !important;
+          opacity: 0.4;
+          transition: opacity 120ms ease;
         }
 
         .thread {
-          border: 1px solid var(--panel-border);
-          border-radius: 12px;
-          background: var(--panel-bg);
-          padding: 12px;
           overflow: auto;
+          padding: 20px 20px 8px;
+        }
+
+        .thread-inner {
+          max-width: 800px;
+          margin: 0 auto;
           display: grid;
-          align-content: start;
-          gap: 12px;
+          gap: 16px;
         }
 
         .turn {
-          display: grid;
-          gap: 8px;
+          display: contents;
         }
 
         .message {
-          border-radius: 12px;
-          padding: 10px;
+          border-radius: 16px;
+          padding: 12px 14px;
           display: grid;
-          gap: 8px;
+          gap: 6px;
           max-width: min(100%, 900px);
         }
 
         .user-message {
           background: var(--user-message-bg);
           justify-self: end;
-          min-width: min(100%, 320px);
+          min-width: min(100%, 280px);
         }
 
         .assistant-message {
-          background: var(--assistant-message-bg);
-          border: 1px solid var(--assistant-message-border);
+          background: transparent;
+          border-left: none;
           justify-self: start;
           min-width: min(100%, 320px);
+          padding: 0;
+          border-radius: 0;
         }
 
         .message p {
@@ -1093,33 +1220,145 @@ export default function ChatPage() {
           justify-content: space-between;
           gap: 8px;
           font-size: 0.84rem;
+          color: var(--text-muted);
         }
 
         .empty-state {
-          margin: 0;
+          margin: 16px 0;
           opacity: 0.85;
+          color: var(--text-muted);
+        }
+
+        .composer {
+          border-radius: 20px;
+          background: var(--composer-bg);
+          border-color: var(--composer-border);
+          margin: 10px auto 16px;
+          width: min(860px, calc(100% - 32px));
+          padding: 10px;
+          gap: 6px;
+          box-shadow: 0 12px 30px -24px rgba(0, 0, 0, 0.45);
+        }
+
+        .composer-label span {
+          font-size: 0.75rem;
+          color: var(--text-muted);
         }
 
         .composer textarea {
-          min-height: 90px;
+          min-height: 70px;
+          resize: vertical;
+          border-radius: 12px;
+          line-height: 1.4;
+        }
+
+        .composer-actions {
+          display: flex;
+          justify-content: flex-end;
+        }
+
+        .send-button {
+          border-radius: 999px;
+          min-width: 74px;
+          font-weight: 600;
+        }
+
+        .visually-hidden {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          padding: 0;
+          margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
+        }
+
+        .redirect-card {
+          margin: 24px;
+          padding: 14px;
+          border-radius: 12px;
+          background: var(--panel-bg);
+          border: 1px solid var(--panel-border);
+        }
+
+        .status,
+        .error {
+          margin: 0;
+          padding: 8px 12px;
+          border-radius: 10px;
+          width: fit-content;
+          margin-left: auto;
+          margin-right: 12px;
+          font-weight: 700;
+          font-size: 0.86rem;
+          background: var(--panel-bg);
         }
 
         .status {
-          margin: 0;
           color: var(--status-color);
-          font-weight: 700;
         }
 
         .error {
-          margin: 0;
           color: var(--error-color);
-          font-weight: 700;
         }
 
         .danger {
           border-color: var(--danger-border);
           background: var(--danger-bg);
           color: var(--danger-text);
+        }
+
+        .sidebar-backdrop {
+          display: none;
+          border: none;
+          background: transparent;
+        }
+
+        @media (max-width: 1040px) {
+          .sidebar-shell {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: min(86vw, 320px);
+            min-height: 100vh;
+            border-right: 1px solid var(--sidebar-border);
+            border-bottom: none;
+            transform: translateX(-110%);
+            transition: transform 140ms ease;
+          }
+
+          .workspace.sidebar-open .sidebar-shell {
+            transform: translateX(0);
+          }
+
+          .workspace.sidebar-open .sidebar-backdrop {
+            display: block;
+            position: fixed;
+            inset: 0;
+            z-index: 3;
+            background: rgba(0, 0, 0, 0.35);
+          }
+
+          .chat-shell {
+            min-height: auto;
+            border-left: none;
+          }
+
+          .chat-topbar {
+            position: static;
+          }
+
+          .mobile-only,
+          .sidebar-toggle {
+            display: inline-flex;
+          }
+
+          .sidebar-actions {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
         }
       `}</style>
     </main>
