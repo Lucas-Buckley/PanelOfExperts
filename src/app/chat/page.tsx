@@ -245,8 +245,8 @@ export default function ChatPage() {
   const [promptInput, setPromptInput] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-  const [statusMessage, setStatusMessage] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  const [, setStatusMessage] = useState("");
+  const [, setErrorMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
 
   const activePanel = useMemo(() => {
@@ -692,11 +692,9 @@ export default function ChatPage() {
                   </button>
                   <div>
                     <h2>{activeConversation ? activeConversation.name : "No active conversation"}</h2>
-                    <p>
-                      {activeConversation
-                        ? `Last prompted: ${formatTimestamp(activeConversation.lastPromptedAt)}`
-                        : "Send a prompt to start a new conversation, or pick one from the left panel."}
-                    </p>
+                    {!activeConversation ? (
+                      <p>Send a prompt to start a new conversation, or pick one from the left panel.</p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="chat-account">
@@ -773,9 +771,6 @@ export default function ChatPage() {
         </section>
       )}
 
-      {statusMessage ? <p className="status">{statusMessage}</p> : null}
-      {errorMessage ? <p className="error">{errorMessage}</p> : null}
-
       <style jsx>{`
         .page {
           --bg-start: #f4f7ff;
@@ -816,8 +811,8 @@ export default function ChatPage() {
           font-family: "Trebuchet MS", "Segoe UI", sans-serif;
           display: grid;
           align-content: start;
-          grid-template-rows: 1fr auto auto;
-          gap: 6px;
+          grid-template-rows: 1fr;
+          gap: 0;
           overflow: hidden;
         }
 
@@ -1290,27 +1285,6 @@ export default function ChatPage() {
           border-radius: 12px;
           background: var(--panel-bg);
           border: 1px solid var(--panel-border);
-        }
-
-        .status,
-        .error {
-          margin: 0;
-          padding: 8px 12px;
-          border-radius: 10px;
-          width: fit-content;
-          margin-left: auto;
-          margin-right: 12px;
-          font-weight: 700;
-          font-size: 0.86rem;
-          background: var(--panel-bg);
-        }
-
-        .status {
-          color: var(--status-color);
-        }
-
-        .error {
-          color: var(--error-color);
         }
 
         .danger {

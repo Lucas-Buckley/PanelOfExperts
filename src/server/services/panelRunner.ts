@@ -165,7 +165,7 @@ function formatPeerSpecializations(
   return peers
     .map(
       (peer) =>
-        `- [${peer.position}] ${peer.name}: ${peer.specialization}`
+        `- ${peer.name}: ${peer.specialization}`
     )
     .join("\n");
 }
@@ -187,7 +187,7 @@ function formatConversationContext(history: PanelRunnerHistoryPromptInput[]): st
           ? historyPrompt.responses
               .map(
                 (historyResponse) =>
-                  `  - [${historyResponse.sequence}] ${historyResponse.expertName}: ${historyResponse.content}`
+                  `  - ${historyResponse.expertName}: ${historyResponse.content}`
               )
               .join("\n")
           : "  - (No expert responses recorded.)";
@@ -214,7 +214,7 @@ function formatCurrentTurnOutputs(outputs: PanelRunnerResponse[]): string {
   return outputs
     .map(
       (response) =>
-        `- [${response.sequence}] ${response.expertName}: ${response.content}`
+        `- ${response.expertName}: ${response.content}`
     )
     .join("\n");
 }
@@ -228,13 +228,14 @@ function buildInterExpertResponseContract(
    * Outputs: Required output contract text for downstream experts.
    */
   const requiredReferences = priorCurrentTurnOutputs
-    .map((response) => `- [${response.sequence}] ${response.expertName}`)
+    .map((response) => `- ${response.expertName}`)
     .join("\n");
 
   return [
     "Inter-expert response requirements (required):",
     "1) Response to prior expert:",
-    `- Explicitly reference at least one prior expert from this list:\n${requiredReferences}`,
+    `- Explicitly reference at least one prior expert by name from this list:\n${requiredReferences}`,
+    "- Use expert names only; do not use numeric labels like [1].",
     "- State one point you agree with or challenge.",
     "2) My distinct angle:",
     "- Add one non-redundant point from your specialization.",
@@ -255,13 +256,41 @@ function hasRequiredInterExpertReference(
   const normalizedContent = content.toLowerCase();
 
   return priorCurrentTurnOutputs.some((response) => {
-    const sequenceReference = `[${response.sequence}]`;
     const normalizedExpertName = response.expertName.toLowerCase();
-    return (
-      normalizedContent.includes(sequenceReference) ||
-      normalizedContent.includes(normalizedExpertName)
-    );
+    return normalizedContent.includes(normalizedExpertName);
   });
+}
+
+function hasNumberedExpertReference(
+  content: string,
+  priorCurrentTurnOutputs: PanelRunnerResponse[]
+): boolean {
+  /**
+   * Purpose: Detects disallowed numeric expert references like `[1] Expert Name`.
+   * Inputs: Generated output content and prior same-turn expert outputs.
+   * Outputs: `true` when numbered-name references are present, otherwise `false`.
+   */
+  return priorCurrentTurnOutputs.some((response) => {
+    const escapedName = response.expertName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const numberedPattern = new RegExp(`\\[\\d+\\]\\s*${escapedName}`, "i");
+    return numberedPattern.test(content);
+  });
+}
+
+function stripNumberedExpertReferences(
+  content: string,
+  priorCurrentTurnOutputs: PanelRunnerResponse[]
+): string {
+  /**
+   * Purpose: Removes numeric labels from expert references while preserving referenced expert names.
+   * Inputs: Generated output content and prior same-turn expert outputs.
+   * Outputs: Content with numbered expert labels stripped.
+   */
+  return priorCurrentTurnOutputs.reduce((current, response) => {
+    const escapedName = response.expertName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const numberedPattern = new RegExp(`\\[(\\d+)\\]\\s*(${escapedName})`, "gi");
+    return current.replace(numberedPattern, "$2");
+  }, content);
 }
 
 function shouldEnforceInterExpertReference(args: {
@@ -290,7 +319,7 @@ function buildInterExpertCorrectionPrompt(args: {
     args.basePrompt,
     "",
     "Correction required:",
-    "Your previous attempt did not explicitly reference a prior expert.",
+    "Your previous attempt did not satisfy the inter-expert reference rules.",
     "Regenerate the answer and satisfy all inter-expert requirements exactly.",
     buildInterExpertResponseContract(args.priorCurrentTurnOutputs),
     "",
@@ -465,12 +494,14 @@ export async function runPanel(input: PanelRunnerInput): Promise<PanelRunnerResu
         expertIndex: index,
         priorCurrentTurnOutputs: responses
       }) &&
-      !hasRequiredInterExpertReference(llmResponse.content, responses)
+      (!hasRequiredInterExpertReference(llmResponse.content, responses) ||
+        hasNumberedExpertReference(llmResponse.content, responses))
     ) {
       for (
         let retryAttempt = 0;
         retryAttempt < INTER_EXPERT_RETRY_LIMIT &&
-        !hasRequiredInterExpertReference(llmResponse.content, responses);
+        (!hasRequiredInterExpertReference(llmResponse.content, responses) ||
+          hasNumberedExpertReference(llmResponse.content, responses));
         retryAttempt += 1
       ) {
         const correctionPrompt = buildInterExpertCorrectionPrompt({
@@ -487,7 +518,7 @@ export async function runPanel(input: PanelRunnerInput): Promise<PanelRunnerResu
       expertId: expert.id,
       expertName: expert.name,
       sequence: index + 1,
-      content: llmResponse.content
+      content: stripNumberedExpertReferences(llmResponse.content, responses)
     });
   }
 

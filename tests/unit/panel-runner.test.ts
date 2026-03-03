@@ -209,7 +209,7 @@ describe("panel runner", () => {
       return createMockLlmResponse(
         callCount === 1
           ? "First expert answer"
-          : "Response to [1] Planner: I agree, and add an execution plan."
+          : "Response to Planner: I agree, and add an execution plan."
       );
     });
 
@@ -239,11 +239,12 @@ describe("panel runner", () => {
     });
 
     expect(seenPrompts).toHaveLength(2);
-    expect(seenPrompts[0]).toContain("- [2] Operator: Execution");
-    expect(seenPrompts[1]).toContain("- [1] Planner: Roadmapping");
+    expect(seenPrompts[0]).toContain("- Operator: Execution");
+    expect(seenPrompts[1]).toContain("- Planner: Roadmapping");
     expect(seenPrompts[1]).toContain("Prior expert outputs from this same turn:");
     expect(seenPrompts[1]).toContain("Planner: First expert answer");
     expect(seenPrompts[1]).toContain("Inter-expert response requirements (required):");
+    expect(seenPrompts[1]).not.toContain("[1] Planner");
   });
 
   it("executes experts in deterministic position/id order", async () => {
@@ -257,9 +258,9 @@ describe("panel runner", () => {
         return createMockLlmResponse("reply-from-A");
       }
       if (expertName === "C") {
-        return createMockLlmResponse("Response to [1] A: reply-from-C");
+        return createMockLlmResponse("Response to A: reply-from-C");
       }
-      return createMockLlmResponse("Response to [2] C: reply-from-B");
+      return createMockLlmResponse("Response to C: reply-from-B");
     });
 
     const result = await runPanel({
@@ -316,7 +317,7 @@ describe("panel runner", () => {
       if (callCount === 2) {
         return createMockLlmResponse("Second expert answer without reference.");
       }
-      return createMockLlmResponse("Response to [1] Planner: corrective follow-up.");
+      return createMockLlmResponse("Response to Planner: corrective follow-up.");
     });
 
     const result = await runPanel({
@@ -347,9 +348,56 @@ describe("panel runner", () => {
     expect(callCount).toBe(3);
     expect(seenPrompts[2]).toContain("Correction required:");
     expect(seenPrompts[2]).toContain(
-      "Your previous attempt did not explicitly reference a prior expert."
+      "Your previous attempt did not satisfy the inter-expert reference rules."
     );
-    expect(result.responses[1].content).toContain("[1] Planner");
+    expect(result.responses[1].content).toContain("Planner");
+    expect(result.responses[1].content).not.toContain("[1]");
+  });
+
+  it("retries when expert uses numbered reference and stores name-only reference", async () => {
+    const seenPrompts: string[] = [];
+    let callCount = 0;
+    const { runPanel } = await importPanelRunnerWithMock("simulated", async ({ prompt }) => {
+      seenPrompts.push(prompt);
+      callCount += 1;
+      if (callCount === 1) {
+        return createMockLlmResponse("Planner first answer.");
+      }
+      if (callCount === 2) {
+        return createMockLlmResponse("Response to [1] Planner: second expert with numbered reference.");
+      }
+      return createMockLlmResponse("Response to Planner: second expert corrected reference.");
+    });
+
+    const result = await runPanel({
+      conversationId: 9,
+      panelId: 3,
+      panelName: "Launch Council",
+      panelInstructions: "Stay concise.",
+      promptContent: "Give me options.",
+      history: [],
+      experts: [
+        {
+          id: 10,
+          name: "Planner",
+          specialization: "Roadmapping",
+          soul: "Structured",
+          position: 1
+        },
+        {
+          id: 11,
+          name: "Operator",
+          specialization: "Execution",
+          soul: "Action-oriented",
+          position: 2
+        }
+      ]
+    });
+
+    expect(callCount).toBe(3);
+    expect(seenPrompts[2]).toContain("Use expert names only; do not use numeric labels like [1].");
+    expect(result.responses[1].content).toContain("Planner");
+    expect(result.responses[1].content).not.toContain("[1]");
   });
 
   it("passes the same runner checks in both simulated and live modes with mocked llm", async () => {
