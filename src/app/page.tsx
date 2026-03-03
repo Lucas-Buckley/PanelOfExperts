@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * Purpose: Renders the main app UI for authentication, panel management, conversations, and prompt submission.
+ * Purpose: Renders the dashboard UI for authentication and panel management workflows.
  * Inputs: None.
- * Outputs: Interactive client page for running end-to-end prompt flows.
+ * Outputs: Interactive client page for account auth, panel create/select/edit/delete, and chat-page navigation.
  */
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { formatTimestamp, sortConversation } from "./pageHelpers";
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { formatTimestamp } from "./pageHelpers";
 
 type AccountIdentity = {
   id: number;
@@ -35,57 +36,6 @@ type PanelView = {
   instructions: string | null;
   lastPromptedAt: string | null;
   experts: PanelExpertView[];
-};
-
-type ConversationResponseView = {
-  id: number;
-  promptId: number;
-  expertId: number;
-  sequence: number;
-  content: string;
-  createdAt: string;
-};
-
-type ConversationPromptView = {
-  id: number;
-  conversationId: number;
-  sequence: number;
-  content: string;
-  createdAt: string;
-  responses: ConversationResponseView[];
-};
-
-type ConversationView = {
-  id: number;
-  panelId: number;
-  name: string;
-  lastPromptedAt: string | null;
-  prompts: ConversationPromptView[];
-};
-
-type ConversationListItemView = {
-  id: number;
-  panelId: number;
-  name: string;
-  lastPromptedAt: string | null;
-};
-
-type PromptCreateResponse = {
-  prompt: {
-    id: number;
-    conversationId: number;
-    sequence: number;
-    content: string;
-    createdAt: string;
-  };
-  responses: Array<{
-    id: number;
-    promptId: number;
-    expertId: number;
-    sequence: number;
-    content: string;
-    createdAt: string;
-  }>;
 };
 
 type ApiErrorShape = {
@@ -201,9 +151,9 @@ function writeStoredAuth(auth: AuthSuccess | null): void {
 
 export default function HomePage() {
   /**
-   * Purpose: Hosts end-to-end MVP controls: auth, panel create/edit/delete, conversation create/open/delete, and prompt loop.
+   * Purpose: Hosts dashboard controls: auth and panel create/select/edit/delete management.
    * Inputs: None.
-   * Outputs: Home page JSX with form handlers wired to API routes.
+   * Outputs: Home page JSX with form handlers wired to account/panel API routes.
    */
   const [auth, setAuth] = useState<AuthSuccess | null>(null);
   const [email, setEmail] = useState("");
@@ -219,11 +169,6 @@ export default function HomePage() {
   const [editPanelInstructions, setEditPanelInstructions] = useState("");
   const [expertDrafts, setExpertDrafts] = useState<ExpertDraft[]>([createExpertDraft()]);
 
-  const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
-  const [panelConversations, setPanelConversations] = useState<ConversationListItemView[]>([]);
-  const [newConversationName, setNewConversationName] = useState("");
-  const [promptInput, setPromptInput] = useState("");
-
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
@@ -237,9 +182,6 @@ export default function HomePage() {
     setAuth(null);
     setPanels([]);
     setActivePanel(null);
-    setActiveConversation(null);
-    setPanelConversations([]);
-    setPromptInput("");
     writeStoredAuth(null);
     setStatusMessage("");
     setErrorMessage(message);
@@ -260,15 +202,6 @@ export default function HomePage() {
     setErrorMessage(message);
   }, [clearSessionForExpiredToken]);
 
-  const expertNameById = useMemo(() => {
-    /**
-     * Purpose: Builds expert lookup map for rendering response rows under expert names.
-     * Inputs: Active panel expert list.
-     * Outputs: Expert id -> expert name map.
-     */
-    return new Map((activePanel?.experts ?? []).map((expert) => [expert.id, expert.name]));
-  }, [activePanel]);
-
   async function loadPanels(accessToken: string): Promise<void> {
     /**
      * Purpose: Loads account-owned panel list from API and updates local state.
@@ -281,39 +214,6 @@ export default function HomePage() {
       accessToken
     });
     setPanels(listedPanels);
-  }
-
-  async function loadPanelConversations(accessToken: string, panelId: number): Promise<void> {
-    /**
-     * Purpose: Loads conversations for one panel so users can browse/open existing threads by id.
-     * Inputs: Bearer access token and panel id.
-     * Outputs: No return value; updates conversation list state for the active panel.
-     */
-    const listedConversations = await requestJson<ConversationListItemView[]>({
-      path: `/api/conversations?panelId=${panelId}`,
-      method: "GET",
-      accessToken
-    });
-    setPanelConversations(listedConversations);
-  }
-
-  async function ensureActivePanel(accessToken: string, panelId: number): Promise<PanelView> {
-    /**
-     * Purpose: Ensures panel details (including expert list) are loaded for a specific panel id.
-     * Inputs: Bearer access token and target panel id.
-     * Outputs: Loaded panel details from API.
-     */
-    if (activePanel && activePanel.id === panelId) {
-      return activePanel;
-    }
-
-    const panel = await requestJson<PanelView>({
-      path: `/api/panels/${panelId}`,
-      method: "GET",
-      accessToken
-    });
-    setActivePanel(panel);
-    return panel;
   }
 
   useEffect(() => {
@@ -375,8 +275,6 @@ export default function HomePage() {
       writeStoredAuth(result);
       await loadPanels(result.accessToken);
       setActivePanel(null);
-      setActiveConversation(null);
-      setPanelConversations([]);
       setStatusMessage(mode === "register" ? "Account created and signed in." : "Signed in.");
       setPassword("");
     } catch (error) {
@@ -405,9 +303,6 @@ export default function HomePage() {
     setAuth(null);
     setPanels([]);
     setActivePanel(null);
-    setActiveConversation(null);
-    setPanelConversations([]);
-    setPromptInput("");
     writeStoredAuth(null);
     setStatusMessage("Signed out.");
     setErrorMessage("");
@@ -415,9 +310,9 @@ export default function HomePage() {
 
   async function handleSelectPanel(panelId: number): Promise<void> {
     /**
-     * Purpose: Loads full panel detail and sets it as active panel for conversation actions.
+     * Purpose: Loads full panel detail and sets it as active panel for dashboard actions.
      * Inputs: Panel id from selection click.
-     * Outputs: No return value; updates active panel/conversation state.
+     * Outputs: No return value; updates active panel state.
      */
     if (!auth) {
       return;
@@ -433,34 +328,9 @@ export default function HomePage() {
         accessToken: auth.accessToken
       });
       setActivePanel(panel);
-      setActiveConversation(null);
-      await loadPanelConversations(auth.accessToken, panel.id);
       setStatusMessage(`Selected panel: ${panel.name}`);
     } catch (error) {
       handleApiError(error, "Failed to load panel.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleRefreshPanelConversationList(): Promise<void> {
-    /**
-     * Purpose: Refreshes the active panel conversation list with standard error/session handling.
-     * Inputs: None.
-     * Outputs: No return value; updates panel conversation list and status/error state.
-     */
-    if (!auth || !activePanel) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      await loadPanelConversations(auth.accessToken, activePanel.id);
-      setStatusMessage(`Loaded ${activePanel.name} conversation list.`);
-    } catch (error) {
-      handleApiError(error, "Failed to load conversation list.");
     } finally {
       setIsBusy(false);
     }
@@ -540,8 +410,6 @@ export default function HomePage() {
 
       await loadPanels(auth.accessToken);
       setActivePanel(created);
-      setActiveConversation(null);
-      setPanelConversations([]);
       setNewPanelName("");
       setNewPanelDescription("");
       setNewPanelInstructions("");
@@ -591,9 +459,9 @@ export default function HomePage() {
 
   async function handleDeleteActivePanel(): Promise<void> {
     /**
-     * Purpose: Deletes active panel after confirmation and clears dependent panel/conversation UI state.
+     * Purpose: Deletes active panel after confirmation and clears dependent UI state.
      * Inputs: None.
-     * Outputs: No return value; updates panel/conversation state after delete.
+     * Outputs: No return value; updates panel state after delete.
      */
     if (!auth || !activePanel) {
       return;
@@ -614,180 +482,10 @@ export default function HomePage() {
         accessToken: auth.accessToken
       });
       setActivePanel(null);
-      setActiveConversation(null);
-      setPanelConversations([]);
       await loadPanels(auth.accessToken);
       setStatusMessage(`Deleted panel: ${deletedPanelName}.`);
     } catch (error) {
       handleApiError(error, "Failed to delete panel.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleCreateConversation(event: FormEvent<HTMLFormElement>): Promise<void> {
-    /**
-     * Purpose: Creates a conversation under the active panel and opens it in conversation view.
-     * Inputs: Submitted create-conversation form event.
-     * Outputs: No return value; updates active conversation state.
-     */
-    event.preventDefault();
-    if (!auth || !activePanel) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      const created = await requestJson<ConversationView>({
-        path: "/api/conversations",
-        method: "POST",
-        accessToken: auth.accessToken,
-        body: {
-          panelId: activePanel.id,
-          name: newConversationName
-        }
-      });
-      setActiveConversation(sortConversation(created));
-      await loadPanelConversations(auth.accessToken, activePanel.id);
-      setNewConversationName("");
-      setStatusMessage(`Opened conversation: ${created.name}`);
-    } catch (error) {
-      handleApiError(error, "Failed to create conversation.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function openConversationById(
-    accessToken: string,
-    conversationId: number
-  ): Promise<ConversationView> {
-    /**
-     * Purpose: Loads a conversation by id, ensures matching panel details, and syncs panel conversation list.
-     * Inputs: Bearer access token and target conversation id.
-     * Outputs: No return value; updates active panel/conversation and list state.
-     */
-    const conversation = await requestJson<ConversationView>({
-      path: `/api/conversations/${conversationId}`,
-      method: "GET",
-      accessToken
-    });
-    await ensureActivePanel(accessToken, conversation.panelId);
-    await loadPanelConversations(accessToken, conversation.panelId);
-    const sortedConversation = sortConversation(conversation);
-    setActiveConversation(sortedConversation);
-    return sortedConversation;
-  }
-
-  async function handleSelectConversationFromList(conversationId: number): Promise<void> {
-    /**
-     * Purpose: Opens one conversation selected from the active-panel conversation list.
-     * Inputs: Conversation id from list button click.
-     * Outputs: No return value; updates active conversation and status state.
-     */
-    if (!auth) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      const loadedConversation = await openConversationById(auth.accessToken, conversationId);
-      setStatusMessage(`Loaded conversation: ${loadedConversation.name}.`);
-    } catch (error) {
-      handleApiError(error, "Failed to open conversation.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleDeleteConversation(conversation: ConversationListItemView): Promise<void> {
-    /**
-     * Purpose: Deletes one conversation from active-panel list and clears active view when needed.
-     * Inputs: Conversation list item selected for deletion.
-     * Outputs: No return value; updates list, active conversation, and status text.
-     */
-    if (!auth) {
-      return;
-    }
-
-    if (!window.confirm(`Delete conversation "${conversation.name}"?`)) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      await requestJson<{ id: number }>({
-        path: `/api/conversations/${conversation.id}`,
-        method: "DELETE",
-        accessToken: auth.accessToken
-      });
-      if (activeConversation?.id === conversation.id) {
-        setActiveConversation(null);
-      }
-      await loadPanelConversations(auth.accessToken, conversation.panelId);
-      await loadPanels(auth.accessToken);
-      setStatusMessage(`Deleted conversation: ${conversation.name}.`);
-    } catch (error) {
-      handleApiError(error, "Failed to delete conversation.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleSubmitPrompt(event: FormEvent<HTMLFormElement>): Promise<void> {
-    /**
-     * Purpose: Sends a prompt for the active conversation and appends resulting expert responses to UI history.
-     * Inputs: Submitted prompt form event.
-     * Outputs: No return value; updates active conversation prompt history.
-     */
-    event.preventDefault();
-    if (!auth || !activeConversation) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      const created = await requestJson<PromptCreateResponse>({
-        path: `/api/conversations/${activeConversation.id}/prompts`,
-        method: "POST",
-        accessToken: auth.accessToken,
-        body: {
-          content: promptInput
-        }
-      });
-
-      setActiveConversation((current) => {
-        if (!current || current.id !== created.prompt.conversationId) {
-          return current;
-        }
-
-        const appendedPrompt: ConversationPromptView = {
-          ...created.prompt,
-          responses: [...created.responses].sort(
-            (left, right) => left.sequence - right.sequence || left.id - right.id
-          )
-        };
-
-        return sortConversation({
-          ...current,
-          prompts: [...current.prompts, appendedPrompt]
-        });
-      });
-
-      setPromptInput("");
-      setStatusMessage("Prompt submitted.");
-      await loadPanels(auth.accessToken);
-      await loadPanelConversations(auth.accessToken, activeConversation.panelId);
-    } catch (error) {
-      handleApiError(error, "Failed to submit prompt.");
     } finally {
       setIsBusy(false);
     }
@@ -847,42 +545,142 @@ export default function HomePage() {
       ) : null}
 
       {auth ? (
-        <>
-          <section className="card">
-            <h2>Panels</h2>
-            <div className="two-col">
-              <div>
-                <h3>My Panels</h3>
-                <button
-                  type="button"
-                  onClick={() => void loadPanels(auth.accessToken)}
-                  disabled={isBusy}
-                >
-                  Refresh Panels
-                </button>
-                {panels.length === 0 ? <p>No panels yet.</p> : null}
-                <ul>
-                  {panels.map((panel) => (
-                    <li key={panel.id}>
-                      <button
-                        type="button"
-                        onClick={() => void handleSelectPanel(panel.id)}
-                        disabled={isBusy}
-                      >
-                        {panel.name} (experts: {panel.experts.length})
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+        <section className="card">
+          <h2>Panels</h2>
+          <div className="two-col">
+            <div>
+              <h3>My Panels</h3>
+              <button
+                type="button"
+                onClick={() => void loadPanels(auth.accessToken)}
+                disabled={isBusy}
+              >
+                Refresh Panels
+              </button>
+              {panels.length === 0 ? <p>No panels yet.</p> : null}
+              <ul>
+                {panels.map((panel) => (
+                  <li key={panel.id}>
+                    <button
+                      type="button"
+                      onClick={() => void handleSelectPanel(panel.id)}
+                      disabled={isBusy}
+                    >
+                      {panel.name} (experts: {panel.experts.length})
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <form onSubmit={(event) => void handleCreatePanel(event)}>
+              <h3>Create Panel</h3>
+              <label>
+                Name
+                <input
+                  value={newPanelName}
+                  onChange={(event) => setNewPanelName(event.target.value)}
+                  maxLength={255}
+                  required
+                />
+              </label>
+              <label>
+                Description
+                <input
+                  value={newPanelDescription}
+                  onChange={(event) => setNewPanelDescription(event.target.value)}
+                  maxLength={255}
+                />
+              </label>
+              <label>
+                Instructions
+                <textarea
+                  value={newPanelInstructions}
+                  onChange={(event) => setNewPanelInstructions(event.target.value)}
+                  rows={3}
+                />
+              </label>
+
+              <h4>Experts</h4>
+              {expertDrafts.map((expert, index) => (
+                <fieldset key={expert.id}>
+                  <legend>Expert {index + 1}</legend>
+                  <label>
+                    Name
+                    <input
+                      value={expert.name}
+                      onChange={(event) =>
+                        handleExpertDraftChange(index, "name", event.target.value)
+                      }
+                      maxLength={255}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Specialization
+                    <input
+                      value={expert.specialization}
+                      onChange={(event) =>
+                        handleExpertDraftChange(index, "specialization", event.target.value)
+                      }
+                      maxLength={255}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Personality
+                    <input
+                      value={expert.soul}
+                      onChange={(event) =>
+                        handleExpertDraftChange(index, "soul", event.target.value)
+                      }
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeExpertDraft(index)}
+                    disabled={expertDrafts.length <= 1 || isBusy}
+                  >
+                    Remove Expert
+                  </button>
+                </fieldset>
+              ))}
+              <button type="button" onClick={addExpertDraft} disabled={isBusy}>
+                Add Expert
+              </button>
+              <button type="submit" disabled={isBusy}>
+                Create Panel
+              </button>
+            </form>
+          </div>
+
+          {activePanel ? (
+            <div className="active-info">
+              <h3>Active Panel: {activePanel.name}</h3>
+              <p>Description: {activePanel.description ?? "N/A"}</p>
+              <p>Instructions: {activePanel.instructions ?? "N/A"}</p>
+              <p>Last prompted: {formatTimestamp(activePanel.lastPromptedAt)}</p>
+              <ul>
+                {activePanel.experts.map((expert) => (
+                  <li key={expert.id}>
+                    {expert.name} - {expert.specialization}
+                  </li>
+                ))}
+              </ul>
+
+              <div className="action-row">
+                <Link className="button-link" href={`/chat?panelId=${activePanel.id}`}>
+                  Open Chat Workspace
+                </Link>
               </div>
 
-              <form onSubmit={(event) => void handleCreatePanel(event)}>
-                <h3>Create Panel</h3>
+              <form onSubmit={(event) => void handleUpdateActivePanel(event)}>
+                <h4>Edit Active Panel</h4>
                 <label>
                   Name
                   <input
-                    value={newPanelName}
-                    onChange={(event) => setNewPanelName(event.target.value)}
+                    value={editPanelName}
+                    onChange={(event) => setEditPanelName(event.target.value)}
                     maxLength={255}
                     required
                   />
@@ -890,250 +688,38 @@ export default function HomePage() {
                 <label>
                   Description
                   <input
-                    value={newPanelDescription}
-                    onChange={(event) => setNewPanelDescription(event.target.value)}
+                    value={editPanelDescription}
+                    onChange={(event) => setEditPanelDescription(event.target.value)}
                     maxLength={255}
                   />
                 </label>
                 <label>
                   Instructions
                   <textarea
-                    value={newPanelInstructions}
-                    onChange={(event) => setNewPanelInstructions(event.target.value)}
+                    value={editPanelInstructions}
+                    onChange={(event) => setEditPanelInstructions(event.target.value)}
                     rows={3}
                   />
                 </label>
-
-                <h4>Experts</h4>
-                {expertDrafts.map((expert, index) => (
-                  <fieldset key={expert.id}>
-                    <legend>Expert {index + 1}</legend>
-                    <label>
-                      Name
-                      <input
-                        value={expert.name}
-                        onChange={(event) =>
-                          handleExpertDraftChange(index, "name", event.target.value)
-                        }
-                        maxLength={255}
-                        required
-                      />
-                    </label>
-                    <label>
-                      Specialization
-                      <input
-                        value={expert.specialization}
-                        onChange={(event) =>
-                          handleExpertDraftChange(index, "specialization", event.target.value)
-                        }
-                        maxLength={255}
-                        required
-                      />
-                    </label>
-                    <label>
-                      Personality
-                      <input
-                        value={expert.soul}
-                        onChange={(event) =>
-                          handleExpertDraftChange(index, "soul", event.target.value)
-                        }
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => removeExpertDraft(index)}
-                      disabled={expertDrafts.length <= 1 || isBusy}
-                    >
-                      Remove Expert
-                    </button>
-                  </fieldset>
-                ))}
-                <button type="button" onClick={addExpertDraft} disabled={isBusy}>
-                  Add Expert
-                </button>
-                <button type="submit" disabled={isBusy}>
-                  Create Panel
-                </button>
+                <div className="action-row">
+                  <button type="submit" disabled={isBusy}>
+                    Save Panel Changes
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => void handleDeleteActivePanel()}
+                    disabled={isBusy}
+                  >
+                    Delete Active Panel
+                  </button>
+                </div>
               </form>
             </div>
-
-            {activePanel ? (
-              <div className="active-info">
-                <h3>Active Panel: {activePanel.name}</h3>
-                <p>Description: {activePanel.description ?? "N/A"}</p>
-                <p>Instructions: {activePanel.instructions ?? "N/A"}</p>
-                <p>Last prompted: {formatTimestamp(activePanel.lastPromptedAt)}</p>
-                <ul>
-                  {activePanel.experts.map((expert) => (
-                    <li key={expert.id}>
-                      {expert.name} - {expert.specialization}
-                    </li>
-                  ))}
-                </ul>
-                <form onSubmit={(event) => void handleUpdateActivePanel(event)}>
-                  <h4>Edit Active Panel</h4>
-                  <label>
-                    Name
-                    <input
-                      value={editPanelName}
-                      onChange={(event) => setEditPanelName(event.target.value)}
-                      maxLength={255}
-                      required
-                    />
-                  </label>
-                  <label>
-                    Description
-                    <input
-                      value={editPanelDescription}
-                      onChange={(event) => setEditPanelDescription(event.target.value)}
-                      maxLength={255}
-                    />
-                  </label>
-                  <label>
-                    Instructions
-                    <textarea
-                      value={editPanelInstructions}
-                      onChange={(event) => setEditPanelInstructions(event.target.value)}
-                      rows={3}
-                    />
-                  </label>
-                  <div className="action-row">
-                    <button type="submit" disabled={isBusy}>
-                      Save Panel Changes
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => void handleDeleteActivePanel()}
-                      disabled={isBusy}
-                    >
-                      Delete Active Panel
-                    </button>
-                  </div>
-                </form>
-              </div>
-            ) : null}
-          </section>
-
-          <section className="card">
-            <h2>Conversations</h2>
-            <div className="two-col">
-              <form onSubmit={(event) => void handleCreateConversation(event)}>
-                <h3>Create Conversation</h3>
-                <label>
-                  Name
-                  <input
-                    value={newConversationName}
-                    onChange={(event) => setNewConversationName(event.target.value)}
-                    maxLength={255}
-                    required
-                  />
-                </label>
-                <button type="submit" disabled={!activePanel || isBusy}>
-                  Create on Active Panel
-                </button>
-              </form>
-            </div>
-
-            {activePanel ? (
-              <div className="active-info">
-                <h3>Conversations in Active Panel</h3>
-                <button
-                  type="button"
-                  onClick={() => void handleRefreshPanelConversationList()}
-                  disabled={isBusy}
-                >
-                  Refresh Conversation List
-                </button>
-                {panelConversations.length === 0 ? <p>No conversations yet for this panel.</p> : null}
-                {panelConversations.length > 0 ? (
-                  <ul>
-                    {panelConversations.map((conversation) => (
-                      <li key={conversation.id}>
-                        <div className="action-row">
-                          <button
-                            type="button"
-                            onClick={() => void handleSelectConversationFromList(conversation.id)}
-                            disabled={isBusy}
-                          >
-                            {conversation.name}
-                          </button>
-                          <button
-                            type="button"
-                            className="danger"
-                            onClick={() => void handleDeleteConversation(conversation)}
-                            disabled={isBusy}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                        <span> - Last prompted: {formatTimestamp(conversation.lastPromptedAt)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            ) : (
-              <p>Select a panel to view existing conversations.</p>
-            )}
-
-            {activeConversation ? (
-              <div className="active-info">
-                <h3>
-                  Active Conversation: {activeConversation.name}
-                </h3>
-                <p>Last prompted: {formatTimestamp(activeConversation.lastPromptedAt)}</p>
-              </div>
-            ) : (
-              <p>No active conversation.</p>
-            )}
-          </section>
-
-          <section className="card">
-            <h2>Prompt + Responses</h2>
-            <form onSubmit={(event) => void handleSubmitPrompt(event)}>
-              <label>
-                Prompt Content
-                <textarea
-                  value={promptInput}
-                  onChange={(event) => setPromptInput(event.target.value)}
-                  rows={4}
-                  required
-                />
-              </label>
-              <button type="submit" disabled={!activeConversation || isBusy}>
-                Submit Prompt to Active Conversation
-              </button>
-            </form>
-
-            {activeConversation ? (
-              <ol>
-                {activeConversation.prompts.map((prompt) => (
-                  <li key={prompt.id} className="prompt-item">
-                    <p>
-                      <strong>Prompt #{prompt.sequence}</strong> ({formatTimestamp(prompt.createdAt)})
-                    </p>
-                    <p>{prompt.content}</p>
-                    <ul>
-                      {prompt.responses.map((response) => (
-                        <li key={response.id}>
-                          <strong>
-                            {expertNameById.get(response.expertId) ??
-                              `Expert #${response.expertId}`}
-                          </strong>
-                          {" - "}
-                          {response.content}
-                        </li>
-                      ))}
-                    </ul>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p>Create or load a conversation to start prompting.</p>
-            )}
-          </section>
-        </>
+          ) : (
+            <p>Select a panel, then open its chat workspace.</p>
+          )}
+        </section>
       ) : null}
 
       {statusMessage ? <p className="status">{statusMessage}</p> : null}
@@ -1154,8 +740,6 @@ export default function HomePage() {
           --button-bg: #eef4ff;
           --panel-bg: #f9fbff;
           --panel-border: #ced8eb;
-          --prompt-bg: #fcfdff;
-          --prompt-border: #d4dfef;
           --status-color: #1b5e20;
           --error-color: #a11818;
           --danger-border: #9c2a2a;
@@ -1187,8 +771,6 @@ export default function HomePage() {
             --button-bg: #1e293b;
             --panel-bg: #0f172a;
             --panel-border: #334155;
-            --prompt-bg: #111827;
-            --prompt-border: #334155;
             --status-color: #86efac;
             --error-color: #fca5a5;
             --danger-border: #f87171;
@@ -1266,7 +848,8 @@ export default function HomePage() {
 
         input,
         textarea,
-        button {
+        button,
+        .button-link {
           font: inherit;
         }
 
@@ -1279,13 +862,18 @@ export default function HomePage() {
           color: var(--text-main);
         }
 
-        button {
+        button,
+        .button-link {
           border: 1px solid var(--button-border);
           border-radius: 8px;
           padding: 8px 10px;
           background: var(--button-bg);
           color: var(--text-main);
           cursor: pointer;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
         }
 
         button:disabled {
@@ -1293,8 +881,7 @@ export default function HomePage() {
           cursor: not-allowed;
         }
 
-        ul,
-        ol {
+        ul {
           margin: 0;
           padding-left: 20px;
           display: grid;
@@ -1320,21 +907,11 @@ export default function HomePage() {
           padding: 10px;
           background: var(--panel-bg);
           display: grid;
-          gap: 6px;
-        }
-
-        .active-info p,
-        .prompt-item p {
-          margin: 0;
-        }
-
-        .prompt-item {
-          border: 1px solid var(--prompt-border);
-          border-radius: 10px;
-          padding: 10px;
-          background: var(--prompt-bg);
-          display: grid;
           gap: 8px;
+        }
+
+        .active-info p {
+          margin: 0;
         }
 
         .status {
