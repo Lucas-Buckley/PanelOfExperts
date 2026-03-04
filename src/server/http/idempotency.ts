@@ -450,6 +450,18 @@ export function mapIdempotencyErrorToHttp(error: unknown): { status: number; mes
     };
   }
 
+  const errorCode =
+    error instanceof Prisma.PrismaClientKnownRequestError
+      ? error.code
+      : (error as { code?: string })?.code;
+  if (errorCode === "P2021" || errorCode === "P2022") {
+    return {
+      status: 503,
+      message:
+        "Database schema is out of date for idempotency processing. Run migrations with `npm run db:migrate:deploy` and retry."
+    };
+  }
+
   return {
     status: 500,
     message: "Internal server error."

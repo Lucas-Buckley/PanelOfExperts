@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createIdempotencyRequestHash,
   executeWithIdempotency,
+  mapIdempotencyErrorToHttp,
   readIdempotencyKeyFromRequest
 } from "../../src/server/http/idempotency";
 
@@ -218,5 +219,11 @@ describe("idempotency http helper", () => {
       })
     ).rejects.toThrow("Idempotency key was already used for a different request payload.");
 
+  });
+
+  it("maps missing idempotency table/schema errors to actionable migration guidance", () => {
+    const mapped = mapIdempotencyErrorToHttp({ code: "P2021" });
+    expect(mapped.status).toBe(503);
+    expect(mapped.message).toContain("db:migrate:deploy");
   });
 });
