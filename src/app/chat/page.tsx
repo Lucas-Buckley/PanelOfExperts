@@ -7,7 +7,6 @@
  */
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
 import { formatTimestamp, sortConversation } from "../pageHelpers";
 
@@ -256,6 +255,7 @@ export default function ChatPage() {
   const [activePanelId, setActivePanelId] = useState<number | null>(null);
   const [panelConversations, setPanelConversations] = useState<ConversationListItemView[]>([]);
   const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
+  const [openConversationActionsMenuId, setOpenConversationActionsMenuId] = useState<number | null>(null);
   const [promptInput, setPromptInput] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -285,6 +285,15 @@ export default function ChatPage() {
      */
     return new Map((activePanel?.experts ?? []).map((expert) => [expert.id, expert.name]));
   }, [activePanel]);
+
+  useEffect(() => {
+    /**
+     * Purpose: Ensures any open row actions menu closes when panel context changes.
+     * Inputs: Active panel id state.
+     * Outputs: No return value; resets open-menu state.
+     */
+    setOpenConversationActionsMenuId(null);
+  }, [activePanelId]);
 
   const clearSessionForExpiredToken = useCallback((message: string): void => {
     /**
@@ -440,6 +449,29 @@ export default function ChatPage() {
     };
   }, [handleApiError, router]);
 
+  useEffect(() => {
+    /**
+     * Purpose: Closes open conversation action menus when user clicks outside a menu root.
+     * Inputs: Global document pointer-down events.
+     * Outputs: No return value; updates open-menu state.
+     */
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+
+      if (!target.closest("[data-conversation-menu-root='true']")) {
+        setOpenConversationActionsMenuId(null);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, []);
+
   function handleLogout(): void {
     /**
      * Purpose: Clears local auth/session state and returns user to dashboard login screen.
@@ -467,6 +499,7 @@ export default function ChatPage() {
 
     setStatusMessage("");
     setErrorMessage("");
+    setOpenConversationActionsMenuId(null);
     setIsBusy(true);
     try {
       const loadedConversation = await openConversationById(auth.accessToken, conversationId);
@@ -497,6 +530,7 @@ export default function ChatPage() {
 
     setStatusMessage("");
     setErrorMessage("");
+    setOpenConversationActionsMenuId(null);
     setIsBusy(true);
     try {
       await requestJson<{ id: number }>({
@@ -512,6 +546,68 @@ export default function ChatPage() {
       setStatusMessage(`Deleted conversation: ${conversation.name}.`);
     } catch (error) {
       handleApiError(error, "Failed to delete conversation.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleRenameConversation(conversation: ConversationListItemView): Promise<void> {
+    /**
+     * Purpose: Renames one conversation from active-panel list and refreshes list/thread state.
+     * Inputs: Conversation list item selected for rename.
+     * Outputs: No return value; updates list, active conversation name, and status text.
+     */
+    if (!auth) {
+      return;
+    }
+
+    const rawName = window.prompt("Rename conversation", conversation.name);
+    if (rawName === null) {
+      return;
+    }
+
+    const nextName = rawName.trim();
+    if (nextName.length === 0) {
+      setStatusMessage("");
+      setErrorMessage("Conversation name is required.");
+      return;
+    }
+
+    setStatusMessage("");
+    setErrorMessage("");
+    setOpenConversationActionsMenuId(null);
+    setIsBusy(true);
+    try {
+      const renamed = await requestJson<ConversationListItemView>({
+        path: `/api/conversations/${conversation.id}`,
+        method: "PATCH",
+        accessToken: auth.accessToken,
+        body: {
+          name: nextName
+        }
+      });
+
+      setActiveConversation((current) => {
+        /**
+         * Purpose: Keeps active thread title in sync immediately after successful rename.
+         * Inputs: Current active conversation state snapshot.
+         * Outputs: Updated active conversation state with renamed title when ids match.
+         */
+        if (!current || current.id !== renamed.id) {
+          return current;
+        }
+
+        return {
+          ...current,
+          name: renamed.name
+        };
+      });
+
+      await loadPanelConversations(auth.accessToken, conversation.panelId);
+      await loadPanels(auth.accessToken);
+      setStatusMessage(`Renamed conversation: ${renamed.name}.`);
+    } catch (error) {
+      handleApiError(error, "Failed to rename conversation.");
     } finally {
       setIsBusy(false);
     }
@@ -666,15 +762,16 @@ export default function ChatPage() {
                 >
                   Close
                 </button>
-                <Link className="button-link" href="/">
-                  Dashboard
-                </Link>
+                <button type="button" onClick={() => router.push("/")}>
+                  Back to expert selection
+                </button>
               </div>
               <button
                 type="button"
                 className="new-chat-button"
                 onClick={() => {
                   setActiveConversation(null);
+                  setOpenConversationActionsMenuId(null);
                   setPromptInput("");
                   setStatusMessage("");
                   setErrorMessage("");
@@ -689,7 +786,6 @@ export default function ChatPage() {
                   <p>
                     <strong>{activePanel.name}</strong>
                   </p>
-                  <p>Experts:</p>
                   <ul className="panel-experts">
                     {activePanel.experts.length > 0 ? (
                       activePanel.experts.map((expert) => <li key={expert.id}>{expert.name}</li>)
@@ -720,14 +816,50 @@ export default function ChatPage() {
                         >
                           <span>{conversation.name}</span>
                         </button>
-                        <button
-                          type="button"
-                          className="danger compact"
-                          onClick={() => void handleDeleteConversation(conversation)}
-                          disabled={isBusy}
-                        >
-                          Delete
-                        </button>
+                        <div className="conversation-actions-menu" data-conversation-menu-root="true">
+                          <button
+                            type="button"
+                            className="conversation-actions-trigger compact"
+                            aria-haspopup="menu"
+                            aria-expanded={openConversationActionsMenuId === conversation.id}
+                            aria-label={`Open actions for ${conversation.name}`}
+                            onClick={() => {
+                              /**
+                               * Purpose: Toggles one conversation actions dropdown in sidebar list.
+                               * Inputs: Click event on the row action trigger.
+                               * Outputs: No return value; updates open-menu state.
+                               */
+                              setOpenConversationActionsMenuId((current) =>
+                                current === conversation.id ? null : conversation.id
+                              );
+                            }}
+                            disabled={isBusy}
+                          >
+                            <span aria-hidden="true">⋮</span>
+                          </button>
+                          {openConversationActionsMenuId === conversation.id ? (
+                            <div className="conversation-actions-dropdown" role="menu">
+                              <button
+                                type="button"
+                                className="conversation-actions-item"
+                                role="menuitem"
+                                onClick={() => void handleRenameConversation(conversation)}
+                                disabled={isBusy}
+                              >
+                                Rename
+                              </button>
+                              <button
+                                type="button"
+                                className="conversation-actions-item danger"
+                                role="menuitem"
+                                onClick={() => void handleDeleteConversation(conversation)}
+                                disabled={isBusy}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     </li>
                   ))}
@@ -1218,7 +1350,7 @@ export default function ChatPage() {
           display: grid;
           gap: 6px;
           background: var(--panel-bg);
-          overflow: hidden;
+          overflow: visible;
         }
 
         .conversation-list li:hover .compact {
@@ -1255,7 +1387,7 @@ export default function ChatPage() {
           align-items: center;
           gap: 8px;
           min-width: 0;
-          overflow: hidden;
+          overflow: visible;
         }
 
         .compact {
@@ -1264,6 +1396,46 @@ export default function ChatPage() {
           width: auto !important;
           opacity: 0.4;
           transition: opacity 120ms ease;
+        }
+
+        .conversation-actions-menu {
+          position: relative;
+          flex-shrink: 0;
+        }
+
+        .conversation-actions-trigger {
+          min-width: 34px;
+          width: 34px !important;
+          height: 34px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+          font-size: 1rem;
+          line-height: 1;
+        }
+
+        .conversation-actions-dropdown {
+          position: absolute;
+          right: 0;
+          top: calc(100% + 6px);
+          min-width: 132px;
+          z-index: 6;
+          border: 1px solid var(--panel-border);
+          border-radius: 10px;
+          padding: 6px;
+          background: var(--card-bg);
+          box-shadow: 0 10px 24px -16px rgba(0, 0, 0, 0.7);
+          display: grid;
+          gap: 4px;
+        }
+
+        .conversation-actions-item {
+          justify-content: flex-start;
+          width: 100%;
+          padding: 6px 10px;
+          font-size: 0.88rem;
+          opacity: 1;
         }
 
         .thread {

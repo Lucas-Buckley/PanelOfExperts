@@ -8,6 +8,7 @@ const prismaMock = vi.hoisted(() => ({
     create: vi.fn(),
     findFirst: vi.fn(),
     findMany: vi.fn(),
+    update: vi.fn(),
     delete: vi.fn()
   }
 }));
@@ -20,7 +21,8 @@ import {
   createConversationForAccount,
   deleteConversationForAccount,
   getConversationForAccount,
-  listConversationsForPanelForAccount
+  listConversationsForPanelForAccount,
+  renameConversationForAccount
 } from "../../src/server/services/conversationService";
 
 beforeEach(() => {
@@ -28,6 +30,7 @@ beforeEach(() => {
   prismaMock.conversation.create.mockReset();
   prismaMock.conversation.findFirst.mockReset();
   prismaMock.conversation.findMany.mockReset();
+  prismaMock.conversation.update.mockReset();
   prismaMock.conversation.delete.mockReset();
 });
 
@@ -185,5 +188,72 @@ describe("conversation service", () => {
     });
 
     expect(prismaMock.conversation.delete).not.toHaveBeenCalled();
+  });
+
+  it("renames conversation for owner", async () => {
+    prismaMock.conversation.findFirst.mockResolvedValue({ id: 77 });
+    prismaMock.conversation.update.mockResolvedValue({
+      id: 77,
+      panelId: 10,
+      name: "Renamed Conversation",
+      lastPromptedAt: null
+    });
+
+    const renamed = await renameConversationForAccount(5, 77, {
+      name: "Renamed Conversation"
+    });
+
+    expect(renamed).toMatchObject({
+      id: 77,
+      panelId: 10,
+      name: "Renamed Conversation"
+    });
+    expect(prismaMock.conversation.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 77,
+        panel: {
+          accountId: 5
+        }
+      },
+      select: { id: true }
+    });
+    expect(prismaMock.conversation.update).toHaveBeenCalledWith({
+      where: {
+        id: 77
+      },
+      data: {
+        name: "Renamed Conversation"
+      },
+      select: {
+        id: true,
+        panelId: true,
+        name: true,
+        lastPromptedAt: true
+      }
+    });
+  });
+
+  it("denies conversation rename for non-owner", async () => {
+    prismaMock.conversation.findFirst.mockResolvedValue(null);
+
+    await expect(
+      renameConversationForAccount(5, 77, {
+        name: "Renamed Conversation"
+      })
+    ).rejects.toMatchObject({
+      status: 404
+    });
+
+    expect(prismaMock.conversation.update).not.toHaveBeenCalled();
+  });
+
+  it("validates conversation rename payload", async () => {
+    await expect(
+      renameConversationForAccount(5, 77, {
+        name: "   "
+      })
+    ).rejects.toMatchObject({
+      status: 400
+    });
   });
 });

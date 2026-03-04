@@ -1,5 +1,5 @@
 /**
- * Purpose: Implements conversation domain logic for create/list/read APIs with ownership enforcement.
+ * Purpose: Implements conversation domain logic for create/list/read/update/delete APIs with ownership enforcement.
  * Inputs: Authenticated account id plus conversation payload/identifier values.
  * Outputs: Conversation DTOs or mapped domain error metadata for HTTP responses.
  */
@@ -13,7 +13,12 @@ const createConversationSchema = z.object({
   name: z.string().trim().min(1).max(DB_FIELD_LIMITS.conversation.name)
 });
 
+const renameConversationSchema = z.object({
+  name: z.string().trim().min(1).max(DB_FIELD_LIMITS.conversation.name)
+});
+
 type CreateConversationInput = z.infer<typeof createConversationSchema>;
+type RenameConversationInput = z.infer<typeof renameConversationSchema>;
 
 export type ConversationResponseView = {
   id: number;
@@ -66,6 +71,20 @@ function parseCreateConversationInput(input: unknown): CreateConversationInput {
    * Outputs: Typed `CreateConversationInput`, or throws validation error.
    */
   const parsed = createConversationSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new ConversationServiceError("VALIDATION", 400, "Invalid conversation payload.");
+  }
+
+  return parsed.data;
+}
+
+function parseRenameConversationInput(input: unknown): RenameConversationInput {
+  /**
+   * Purpose: Validates and parses conversation rename payload.
+   * Inputs: Unknown HTTP request body.
+   * Outputs: Typed `RenameConversationInput`, or throws validation error.
+   */
+  const parsed = renameConversationSchema.safeParse(input);
   if (!parsed.success) {
     throw new ConversationServiceError("VALIDATION", 400, "Invalid conversation payload.");
   }
@@ -246,6 +265,48 @@ export async function deleteConversationForAccount(
   });
 
   return { id: conversationId };
+}
+
+export async function renameConversationForAccount(
+  accountId: number,
+  conversationId: number,
+  input: unknown
+): Promise<ConversationListItemView> {
+  /**
+   * Purpose: Renames one conversation only when it belongs to account-owned panel tree.
+   * Inputs: Authenticated account id, target conversation id, and rename payload.
+   * Outputs: Updated conversation list item payload.
+   */
+  const parsed = parseRenameConversationInput(input);
+
+  const ownedConversation = await prisma.conversation.findFirst({
+    where: {
+      id: conversationId,
+      panel: {
+        accountId
+      }
+    },
+    select: { id: true }
+  });
+
+  if (!ownedConversation) {
+    throw new ConversationServiceError("NOT_FOUND", 404, "Conversation not found.");
+  }
+
+  return prisma.conversation.update({
+    where: {
+      id: conversationId
+    },
+    data: {
+      name: parsed.name
+    },
+    select: {
+      id: true,
+      panelId: true,
+      name: true,
+      lastPromptedAt: true
+    }
+  });
 }
 
 export function mapConversationErrorToHttp(error: unknown): {

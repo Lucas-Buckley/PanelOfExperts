@@ -1,5 +1,5 @@
 /**
- * Purpose: Handles single conversation API read/delete operations with ownership checks.
+ * Purpose: Handles single conversation API read/update/delete operations with ownership checks.
  * Inputs: Authenticated request with bearer token and `conversationId` route param.
  * Outputs: JSON conversation payloads or mapped HTTP error responses.
  */
@@ -9,7 +9,8 @@ import { getAuthenticatedAccountId, mapAccountAuthErrorToHttp } from "../../../.
 import {
   deleteConversationForAccount,
   getConversationForAccount,
-  mapConversationErrorToHttp
+  mapConversationErrorToHttp,
+  renameConversationForAccount
 } from "../../../../server/services/conversationService";
 
 function parseConversationId(rawConversationId: string): number {
@@ -83,6 +84,28 @@ export async function DELETE(
     const conversationId = parseConversationId(routeParams.conversationId);
     const deletedConversation = await deleteConversationForAccount(accountId, conversationId);
     return NextResponse.json(deletedConversation, { status: 200 });
+  } catch (error) {
+    const mapped = mapRouteError(error);
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
+  }
+}
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ conversationId: string }> }
+) {
+  /**
+   * Purpose: Renames one conversation for authenticated owner.
+   * Inputs: HTTP request with bearer token, `conversationId` route param, and JSON body.
+   * Outputs: HTTP 200 updated conversation payload or mapped error response.
+   */
+  try {
+    const accountId = getAuthenticatedAccountId(request);
+    const routeParams = await params;
+    const conversationId = parseConversationId(routeParams.conversationId);
+    const payload = await request.json();
+    const renamedConversation = await renameConversationForAccount(accountId, conversationId, payload);
+    return NextResponse.json(renamedConversation, { status: 200 });
   } catch (error) {
     const mapped = mapRouteError(error);
     return NextResponse.json({ error: mapped.message }, { status: mapped.status });
