@@ -45,5 +45,30 @@ describe("db field limits", () => {
         `model\\s+Conversation\\s+\\{[\\s\\S]*?name\\s+String\\s+@db\\.VarChar\\(${DB_FIELD_LIMITS.conversation.name}\\)`
       )
     );
+    expect(schema).toMatch(
+      new RegExp(
+        `model\\s+IdempotencyRequest\\s+\\{[\\s\\S]*?endpoint\\s+String\\s+@db\\.VarChar\\(${DB_FIELD_LIMITS.idempotency.endpoint}\\)`
+      )
+    );
+    expect(schema).toMatch(
+      new RegExp(
+        `model\\s+IdempotencyRequest\\s+\\{[\\s\\S]*?method\\s+String\\s+@db\\.VarChar\\(${DB_FIELD_LIMITS.idempotency.method}\\)`
+      )
+    );
+    expect(schema).toMatch(
+      new RegExp(
+        `model\\s+IdempotencyRequest\\s+\\{[\\s\\S]*?idempotencyKey\\s+String\\s+@map\\(\"idempotency_key\"\\)\\s+@db\\.VarChar\\(${DB_FIELD_LIMITS.idempotency.key}\\)`
+      )
+    );
+    expect(schema).toMatch(
+      new RegExp(
+        `model\\s+IdempotencyRequest\\s+\\{[\\s\\S]*?requestHash\\s+String\\s+@map\\(\"request_hash\"\\)\\s+@db\\.VarChar\\(${DB_FIELD_LIMITS.idempotency.requestHash}\\)`
+      )
+    );
+    expect(schema).toMatch(
+      new RegExp(
+        `model\\s+IdempotencyRequest\\s+\\{[\\s\\S]*?state\\s+String\\s+@db\\.VarChar\\(${DB_FIELD_LIMITS.idempotency.state}\\)`
+      )
+    );
   });
 });

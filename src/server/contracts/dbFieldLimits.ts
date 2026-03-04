@@ -18,6 +18,13 @@ export const DB_FIELD_LIMITS = {
   },
   conversation: {
     name: 255
+  },
+  idempotency: {
+    endpoint: 128,
+    method: 8,
+    key: 128,
+    requestHash: 64,
+    state: 16
   }
 } as const;
 

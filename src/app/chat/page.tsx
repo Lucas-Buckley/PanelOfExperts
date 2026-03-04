@@ -153,6 +153,7 @@ async function requestJson<T>(args: {
   path: string;
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   accessToken?: string;
+  headers?: Record<string, string>;
   body?: unknown;
 }): Promise<T> {
   /**
@@ -160,9 +161,9 @@ async function requestJson<T>(args: {
    * Inputs: Route path, HTTP method, optional access token, and optional JSON body.
    * Outputs: Parsed success payload or thrown error message from failed responses.
    */
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...(args.headers ?? {}) };
   if (args.body !== undefined) {
-    headers["Content-Type"] = "application/json";
+    headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
   }
   if (args.accessToken) {
     headers.Authorization = `Bearer ${args.accessToken}`;
@@ -187,6 +188,19 @@ async function requestJson<T>(args: {
   }
 
   return payload as T;
+}
+
+function createClientOperationId(): string {
+  /**
+   * Purpose: Generates per-submit operation ids used for server idempotency keys.
+   * Inputs: None.
+   * Outputs: UUID when available, otherwise timestamp/random fallback string.
+   */
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function readStoredAuth(): AuthSuccess | null {
@@ -245,8 +259,8 @@ export default function ChatPage() {
   const [promptInput, setPromptInput] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-  const [, setStatusMessage] = useState("");
-  const [, setErrorMessage] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const promptSubmitLockRef = useRef(false);
 
@@ -352,7 +366,11 @@ export default function ChatPage() {
     return sortedConversation;
   }
 
-  async function generateConversationTitle(accessToken: string, prompt: string): Promise<string> {
+  async function generateConversationTitle(
+    accessToken: string,
+    prompt: string,
+    idempotencyKey: string
+  ): Promise<string> {
     /**
      * Purpose: Requests backend-generated short title for first prompt using server-side LLM access.
      * Inputs: Bearer access token and first prompt content.
@@ -362,6 +380,9 @@ export default function ChatPage() {
       path: "/api/conversations/title",
       method: "POST",
       accessToken,
+      headers: {
+        "Idempotency-Key": idempotencyKey
+      },
       body: { prompt }
     });
 
@@ -516,6 +537,7 @@ export default function ChatPage() {
       return;
     }
     promptSubmitLockRef.current = true;
+    const submitOperationId = createClientOperationId();
 
     setStatusMessage("");
     setErrorMessage("");
@@ -525,7 +547,11 @@ export default function ChatPage() {
       if (!baseConversation) {
         let autoConversationName = buildFallbackConversationName(submittedPrompt);
         try {
-          autoConversationName = await generateConversationTitle(auth.accessToken, submittedPrompt);
+          autoConversationName = await generateConversationTitle(
+            auth.accessToken,
+            submittedPrompt,
+            `title:${submitOperationId}`
+          );
         } catch (titleError) {
           const message = titleError instanceof Error ? titleError.message : "";
           if (message === INVALID_ACCESS_TOKEN_MESSAGE) {
@@ -537,6 +563,9 @@ export default function ChatPage() {
           path: "/api/conversations",
           method: "POST",
           accessToken: auth.accessToken,
+          headers: {
+            "Idempotency-Key": `conversation:${submitOperationId}`
+          },
           body: {
             panelId: activePanelId,
             name: autoConversationName
@@ -551,6 +580,9 @@ export default function ChatPage() {
         path: `/api/conversations/${baseConversation.id}/prompts`,
         method: "POST",
         accessToken: auth.accessToken,
+        headers: {
+          "Idempotency-Key": `prompt:${submitOperationId}`
+        },
         body: {
           content: submittedPrompt
         }
@@ -731,6 +763,16 @@ export default function ChatPage() {
                   </button>
                 </div>
               </div>
+              {errorMessage ? (
+                <p className="inline-feedback inline-feedback-error" role="alert">
+                  {errorMessage}
+                </p>
+              ) : null}
+              {!errorMessage && statusMessage ? (
+                <p className="inline-feedback inline-feedback-success" aria-live="polite">
+                  {statusMessage}
+                </p>
+              ) : null}
             </div>
 
             <div className="thread">
@@ -1052,6 +1094,28 @@ export default function ChatPage() {
           margin: 0;
           color: var(--text-muted);
           font-size: 0.84rem;
+        }
+
+        .inline-feedback {
+          margin: 4px 0 0;
+          padding: 6px 10px;
+          border-radius: 8px;
+          border: 1px solid transparent;
+          font-size: 0.82rem;
+          line-height: 1.3;
+          overflow-wrap: anywhere;
+        }
+
+        .inline-feedback-success {
+          color: var(--status-color);
+          border-color: color-mix(in srgb, var(--status-color) 40%, var(--chat-border));
+          background: color-mix(in srgb, var(--status-color) 14%, transparent);
+        }
+
+        .inline-feedback-error {
+          color: var(--error-color);
+          border-color: color-mix(in srgb, var(--error-color) 40%, var(--chat-border));
+          background: color-mix(in srgb, var(--error-color) 14%, transparent);
         }
 
         .panel-meta p {

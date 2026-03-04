@@ -15,7 +15,8 @@ describe("prisma schema", () => {
       "Conversation",
       "Prompt",
       "Response",
-      "LlmUsageDaily"
+      "LlmUsageDaily",
+      "IdempotencyRequest"
     ]) {
       expect(schema).toContain(`model ${model} {`);
     }
@@ -26,7 +27,9 @@ describe("prisma schema", () => {
   });
 
   it("stores password with long hash capacity", () => {
-    expect(schema).toContain('passwordHash String  @map("password") @db.VarChar(255)');
+    expect(schema).toMatch(
+      /passwordHash\s+String\s+@map\("password"\)\s+@db\.VarChar\(255\)/
+    );
   });
 
   it("contains expected relation fields", () => {
@@ -49,7 +52,8 @@ describe("prisma schema", () => {
       "conversation",
       "prompt",
       "response",
-      "llm_usage_daily"
+      "llm_usage_daily",
+      "idempotency_request"
     ]) {
       expect(schema).toContain(`@@map("${table}")`);
     }

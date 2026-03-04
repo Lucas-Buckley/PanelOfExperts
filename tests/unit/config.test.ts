@@ -67,4 +67,14 @@ describe("app config", () => {
     expect(mod.appConfig.llmMaxLiveOutputTokens).toBe(250);
     expect(mod.appConfig.llmMaxDailyTokens).toBe(2500000);
   });
+
+  it("loads api idempotency settings and allows env overrides", async () => {
+    process.env.OPENAI_MODEL = "gpt-5-nano-2025-08-07";
+    process.env.API_IDEMPOTENCY_REPLAY_TTL_HOURS = "12";
+    process.env.API_IDEMPOTENCY_IN_PROGRESS_TTL_SECONDS = "120";
+
+    const mod = await importFreshConfigModule();
+    expect(mod.appConfig.apiIdempotencyReplayTtlHours).toBe(12);
+    expect(mod.appConfig.apiIdempotencyInProgressTtlSeconds).toBe(120);
+  });
 });

@@ -23,5 +23,9 @@
   },
   "auth": {
     "accessTokenTtl": "15m"
+  },
+  "api": {
+    "idempotencyReplayTtlHours": 24,
+    "idempotencyInProgressTtlSeconds": 600
   }
 }

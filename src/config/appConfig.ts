@@ -37,6 +37,10 @@ type FileConfig = {
   auth: {
     accessTokenTtl: string;
   };
+  api?: {
+    idempotencyReplayTtlHours?: number;
+    idempotencyInProgressTtlSeconds?: number;
+  };
 };
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -129,6 +133,11 @@ const defaultSafetyConfig = {
   maxUserPromptChars: 4000,
   maxLiveOutputTokens: 300,
   maxDailyTokens: 2500000
+};
+
+const defaultApiConfig = {
+  idempotencyReplayTtlHours: 24,
+  idempotencyInProgressTtlSeconds: 600
 };
 
 function resolveModelFromEnv(modelOverride: string | undefined): string {
@@ -244,6 +253,26 @@ export const appConfig = {
         process.env.LLM_MAX_DAILY_TOKENS,
         fileConfig.llm.safety?.maxDailyTokens ??
           defaultSafetyConfig.maxDailyTokens
+      )
+    )
+  ),
+  apiIdempotencyReplayTtlHours: Math.max(
+    1,
+    Math.floor(
+      parseNumber(
+        process.env.API_IDEMPOTENCY_REPLAY_TTL_HOURS,
+        fileConfig.api?.idempotencyReplayTtlHours ??
+          defaultApiConfig.idempotencyReplayTtlHours
+      )
+    )
+  ),
+  apiIdempotencyInProgressTtlSeconds: Math.max(
+    5,
+    Math.floor(
+      parseNumber(
+        process.env.API_IDEMPOTENCY_IN_PROGRESS_TTL_SECONDS,
+        fileConfig.api?.idempotencyInProgressTtlSeconds ??
+          defaultApiConfig.idempotencyInProgressTtlSeconds
       )
     )
   )

@@ -7,6 +7,12 @@ import { NextResponse } from "next/server";
 
 import { getAuthenticatedAccountId, mapAccountAuthErrorToHttp } from "../../../server/http/accountAuth";
 import {
+  createIdempotencyRequestHash,
+  executeWithIdempotency,
+  mapIdempotencyErrorToHttp,
+  readIdempotencyKeyFromRequest
+} from "../../../server/http/idempotency";
+import {
   createConversationForAccount,
   listConversationsForPanelForAccount,
   mapConversationErrorToHttp
@@ -45,6 +51,11 @@ function mapRouteError(error: unknown): { status: number; message: string } {
     return authMapped;
   }
 
+  const idempotencyMapped = mapIdempotencyErrorToHttp(error);
+  if (idempotencyMapped.status !== 500) {
+    return idempotencyMapped;
+  }
+
   return mapConversationErrorToHttp(error);
 }
 
@@ -56,9 +67,31 @@ export async function POST(request: Request) {
    */
   try {
     const accountId = getAuthenticatedAccountId(request);
+    const idempotencyKey = readIdempotencyKeyFromRequest(request);
     const payload = await request.json();
-    const conversation = await createConversationForAccount(accountId, payload);
-    return NextResponse.json(conversation, { status: 201 });
+    const created = await executeWithIdempotency({
+      accountId,
+      endpoint: "/api/conversations",
+      method: "POST",
+      idempotencyKey,
+      requestHash: createIdempotencyRequestHash(payload),
+      execute: async () => {
+        const conversation = await createConversationForAccount(accountId, payload);
+        return {
+          status: 201,
+          body: conversation
+        };
+      }
+    });
+    return NextResponse.json(created.body, {
+      status: created.status,
+      headers:
+        idempotencyKey === null
+          ? undefined
+          : {
+              "X-Idempotency-Replayed": created.replayed ? "true" : "false"
+            }
+    });
   } catch (error) {
     const mapped = mapRouteError(error);
     return NextResponse.json({ error: mapped.message }, { status: mapped.status });
