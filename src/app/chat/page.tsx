@@ -5,7 +5,7 @@
  * Inputs: Optional `panelId` query param, persisted auth session, and user interactions.
  * Outputs: Interactive chat page for conversation selection, prompt submission, and expert response history.
  */
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { formatTimestamp, sortConversation } from "../pageHelpers";
@@ -70,6 +70,12 @@ type ConversationListItemView = {
   panelId: number;
   name: string;
   lastPromptedAt: string | null;
+};
+
+type ConversationActionsMenuState = {
+  conversation: ConversationListItemView;
+  top: number;
+  left: number;
 };
 
 type PromptCreateResponse = {
@@ -255,7 +261,8 @@ export default function ChatPage() {
   const [activePanelId, setActivePanelId] = useState<number | null>(null);
   const [panelConversations, setPanelConversations] = useState<ConversationListItemView[]>([]);
   const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
-  const [openConversationActionsMenuId, setOpenConversationActionsMenuId] = useState<number | null>(null);
+  const [conversationActionsMenu, setConversationActionsMenu] =
+    useState<ConversationActionsMenuState | null>(null);
   const [promptInput, setPromptInput] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -292,7 +299,7 @@ export default function ChatPage() {
      * Inputs: Active panel id state.
      * Outputs: No return value; resets open-menu state.
      */
-    setOpenConversationActionsMenuId(null);
+    setConversationActionsMenu(null);
   }, [activePanelId]);
 
   const clearSessionForExpiredToken = useCallback((message: string): void => {
@@ -462,7 +469,7 @@ export default function ChatPage() {
       }
 
       if (!target.closest("[data-conversation-menu-root='true']")) {
-        setOpenConversationActionsMenuId(null);
+        setConversationActionsMenu(null);
       }
     };
 
@@ -471,6 +478,29 @@ export default function ChatPage() {
       document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, []);
+
+  useEffect(() => {
+    /**
+     * Purpose: Closes the floating conversation actions menu when layout movement would invalidate its anchor position.
+     * Inputs: Current menu open state plus global resize/scroll events.
+     * Outputs: No return value; resets open-menu state when viewport changes.
+     */
+    if (!conversationActionsMenu) {
+      return;
+    }
+
+    const closeMenu = (): void => {
+      setConversationActionsMenu(null);
+    };
+
+    window.addEventListener("resize", closeMenu);
+    document.addEventListener("scroll", closeMenu, true);
+
+    return () => {
+      window.removeEventListener("resize", closeMenu);
+      document.removeEventListener("scroll", closeMenu, true);
+    };
+  }, [conversationActionsMenu]);
 
   function handleLogout(): void {
     /**
@@ -499,7 +529,7 @@ export default function ChatPage() {
 
     setStatusMessage("");
     setErrorMessage("");
-    setOpenConversationActionsMenuId(null);
+    setConversationActionsMenu(null);
     setIsBusy(true);
     try {
       const loadedConversation = await openConversationById(auth.accessToken, conversationId);
@@ -530,7 +560,7 @@ export default function ChatPage() {
 
     setStatusMessage("");
     setErrorMessage("");
-    setOpenConversationActionsMenuId(null);
+    setConversationActionsMenu(null);
     setIsBusy(true);
     try {
       await requestJson<{ id: number }>({
@@ -575,7 +605,7 @@ export default function ChatPage() {
 
     setStatusMessage("");
     setErrorMessage("");
-    setOpenConversationActionsMenuId(null);
+    setConversationActionsMenu(null);
     setIsBusy(true);
     try {
       const renamed = await requestJson<ConversationListItemView>({
@@ -611,6 +641,48 @@ export default function ChatPage() {
     } finally {
       setIsBusy(false);
     }
+  }
+
+  function toggleConversationActionsMenu(
+    event: MouseEvent<HTMLButtonElement>,
+    conversation: ConversationListItemView
+  ): void {
+    /**
+     * Purpose: Opens or closes the floating actions menu anchored to one conversation row trigger.
+     * Inputs: Trigger button click event and the target conversation list item.
+     * Outputs: No return value; updates menu visibility and viewport coordinates.
+     */
+    const triggerRect = event.currentTarget.getBoundingClientRect();
+    const dropdownWidth = 148;
+    const dropdownHeight = 96;
+    const viewportPadding = 12;
+    const nextLeft = Math.min(
+      Math.max(viewportPadding, triggerRect.right - dropdownWidth),
+      window.innerWidth - dropdownWidth - viewportPadding
+    );
+    const preferredTop = triggerRect.bottom + 6;
+    const fallbackTop = triggerRect.top - dropdownHeight - 6;
+    const nextTop =
+      preferredTop + dropdownHeight <= window.innerHeight - viewportPadding
+        ? preferredTop
+        : Math.max(viewportPadding, fallbackTop);
+
+    setConversationActionsMenu((current) => {
+      /**
+       * Purpose: Toggles off the existing menu when the same conversation trigger is pressed again.
+       * Inputs: Current floating menu state snapshot.
+       * Outputs: Replacement menu state or null when toggled closed.
+       */
+      if (current?.conversation.id === conversation.id) {
+        return null;
+      }
+
+      return {
+        conversation,
+        top: nextTop,
+        left: nextLeft
+      };
+    });
   }
 
   async function handleSubmitPrompt(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -771,7 +843,7 @@ export default function ChatPage() {
                 className="new-chat-button"
                 onClick={() => {
                   setActiveConversation(null);
-                  setOpenConversationActionsMenuId(null);
+                  setConversationActionsMenu(null);
                   setPromptInput("");
                   setStatusMessage("");
                   setErrorMessage("");
@@ -821,44 +893,13 @@ export default function ChatPage() {
                             type="button"
                             className="conversation-actions-trigger compact"
                             aria-haspopup="menu"
-                            aria-expanded={openConversationActionsMenuId === conversation.id}
+                            aria-expanded={conversationActionsMenu?.conversation.id === conversation.id}
                             aria-label={`Open actions for ${conversation.name}`}
-                            onClick={() => {
-                              /**
-                               * Purpose: Toggles one conversation actions dropdown in sidebar list.
-                               * Inputs: Click event on the row action trigger.
-                               * Outputs: No return value; updates open-menu state.
-                               */
-                              setOpenConversationActionsMenuId((current) =>
-                                current === conversation.id ? null : conversation.id
-                              );
-                            }}
+                            onClick={(event) => toggleConversationActionsMenu(event, conversation)}
                             disabled={isBusy}
                           >
                             <span aria-hidden="true">⋮</span>
                           </button>
-                          {openConversationActionsMenuId === conversation.id ? (
-                            <div className="conversation-actions-dropdown" role="menu">
-                              <button
-                                type="button"
-                                className="conversation-actions-item"
-                                role="menuitem"
-                                onClick={() => void handleRenameConversation(conversation)}
-                                disabled={isBusy}
-                              >
-                                Rename
-                              </button>
-                              <button
-                                type="button"
-                                className="conversation-actions-item danger"
-                                role="menuitem"
-                                onClick={() => void handleDeleteConversation(conversation)}
-                                disabled={isBusy}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          ) : null}
                         </div>
                       </div>
                     </li>
@@ -962,6 +1003,37 @@ export default function ChatPage() {
                 </button>
               </div>
             </form>
+
+            {conversationActionsMenu ? (
+              <div
+                className="conversation-actions-dropdown floating"
+                data-conversation-menu-root="true"
+                role="menu"
+                style={{
+                  top: `${conversationActionsMenu.top}px`,
+                  left: `${conversationActionsMenu.left}px`
+                }}
+              >
+                <button
+                  type="button"
+                  className="conversation-actions-item"
+                  role="menuitem"
+                  onClick={() => void handleRenameConversation(conversationActionsMenu.conversation)}
+                  disabled={isBusy}
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  className="conversation-actions-item danger"
+                  role="menuitem"
+                  onClick={() => void handleDeleteConversation(conversationActionsMenu.conversation)}
+                  disabled={isBusy}
+                >
+                  Delete
+                </button>
+              </div>
+            ) : null}
           </section>
         </div>
       ) : (
@@ -1399,7 +1471,6 @@ export default function ChatPage() {
         }
 
         .conversation-actions-menu {
-          position: relative;
           flex-shrink: 0;
         }
 
@@ -1416,11 +1487,9 @@ export default function ChatPage() {
         }
 
         .conversation-actions-dropdown {
-          position: absolute;
-          right: 0;
-          top: calc(100% + 6px);
+          position: fixed;
           min-width: 132px;
-          z-index: 6;
+          z-index: 20;
           border: 1px solid var(--panel-border);
           border-radius: 10px;
           padding: 6px;
@@ -1428,6 +1497,10 @@ export default function ChatPage() {
           box-shadow: 0 10px 24px -16px rgba(0, 0, 0, 0.7);
           display: grid;
           gap: 4px;
+        }
+
+        .conversation-actions-dropdown.floating {
+          width: 148px;
         }
 
         .conversation-actions-item {

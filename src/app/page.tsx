@@ -7,7 +7,6 @@
  */
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { formatTimestamp } from "./pageHelpers";
 
 type AccountIdentity = {
   id: number;
@@ -161,6 +160,7 @@ export default function HomePage() {
 
   const [panels, setPanels] = useState<PanelView[]>([]);
   const [activePanel, setActivePanel] = useState<PanelView | null>(null);
+  const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
   const [newPanelName, setNewPanelName] = useState("");
   const [newPanelDescription, setNewPanelDescription] = useState("");
   const [newPanelInstructions, setNewPanelInstructions] = useState("");
@@ -182,6 +182,8 @@ export default function HomePage() {
     setAuth(null);
     setPanels([]);
     setActivePanel(null);
+    setIsCreatePanelOpen(false);
+    resetCreatePanelForm();
     writeStoredAuth(null);
     setStatusMessage("");
     setErrorMessage(message);
@@ -251,6 +253,30 @@ export default function HomePage() {
     setEditPanelInstructions(activePanel.instructions ?? "");
   }, [activePanel]);
 
+  function resetCreatePanelForm(): void {
+    /**
+     * Purpose: Clears create-panel draft fields and restores a single blank expert row.
+     * Inputs: None.
+     * Outputs: No return value; resets create-panel form state.
+     */
+    setNewPanelName("");
+    setNewPanelDescription("");
+    setNewPanelInstructions("");
+    setExpertDrafts([createExpertDraft()]);
+  }
+
+  function handleToggleCreatePanel(): void {
+    /**
+     * Purpose: Toggles the create-panel section while collapsing any open panel editor.
+     * Inputs: None.
+     * Outputs: No return value; updates create/edit visibility state.
+     */
+    setActivePanel(null);
+    setIsCreatePanelOpen((current) => !current);
+    setStatusMessage("");
+    setErrorMessage("");
+  }
+
   async function submitAuth(mode: "register" | "login"): Promise<void> {
     /**
      * Purpose: Submits register/login requests and persists auth session for subsequent API calls.
@@ -275,6 +301,8 @@ export default function HomePage() {
       writeStoredAuth(result);
       await loadPanels(result.accessToken);
       setActivePanel(null);
+      setIsCreatePanelOpen(false);
+      resetCreatePanelForm();
       setStatusMessage(mode === "register" ? "Account created and signed in." : "Signed in.");
       setPassword("");
     } catch (error) {
@@ -303,6 +331,8 @@ export default function HomePage() {
     setAuth(null);
     setPanels([]);
     setActivePanel(null);
+    setIsCreatePanelOpen(false);
+    resetCreatePanelForm();
     writeStoredAuth(null);
     setStatusMessage("Signed out.");
     setErrorMessage("");
@@ -310,16 +340,24 @@ export default function HomePage() {
 
   async function handleSelectPanel(panelId: number): Promise<void> {
     /**
-     * Purpose: Loads full panel detail and sets it as active panel for dashboard actions.
-     * Inputs: Panel id from selection click.
+     * Purpose: Loads full panel detail and toggles it as the active inline editor on the dashboard.
+     * Inputs: Panel id from edit-button click.
      * Outputs: No return value; updates active panel state.
      */
     if (!auth) {
       return;
     }
 
+    if (activePanel?.id === panelId) {
+      setActivePanel(null);
+      setStatusMessage("");
+      setErrorMessage("");
+      return;
+    }
+
     setStatusMessage("");
     setErrorMessage("");
+    setIsCreatePanelOpen(false);
     setIsBusy(true);
     try {
       const panel = await requestJson<PanelView>({
@@ -410,10 +448,8 @@ export default function HomePage() {
 
       await loadPanels(auth.accessToken);
       setActivePanel(created);
-      setNewPanelName("");
-      setNewPanelDescription("");
-      setNewPanelInstructions("");
-      setExpertDrafts([createExpertDraft()]);
+      setIsCreatePanelOpen(false);
+      resetCreatePanelForm();
       setStatusMessage(`Created panel: ${created.name}`);
     } catch (error) {
       handleApiError(error, "Failed to create panel.");
@@ -493,8 +529,7 @@ export default function HomePage() {
 
   return (
     <main className="page">
-      <header className="top-bar">
-        <h1>Panel of Experts</h1>
+      <header className="hero">
         {auth ? (
           <div className="auth-summary">
             <p>
@@ -505,11 +540,24 @@ export default function HomePage() {
             </button>
           </div>
         ) : null}
+        <div className="hero-copy">
+          <h1>Panel of Experts</h1>
+          <p>
+            Build focused expert panels, shape how they think, and jump straight into the
+            conversation.
+          </p>
+        </div>
       </header>
 
+      {statusMessage ? <p className="status">{statusMessage}</p> : null}
+      {errorMessage ? <p className="error">{errorMessage}</p> : null}
+
       {!auth ? (
-        <section className="card">
-          <h2>Authentication</h2>
+        <section className="card auth-card">
+          <div className="section-copy">
+            <h2>Authentication</h2>
+            <p>Sign in to create, edit, and run your own panels of experts.</p>
+          </div>
           <form className="auth-form" onSubmit={handleAuthFormSubmit}>
             <label>
               Email
@@ -545,36 +593,24 @@ export default function HomePage() {
       ) : null}
 
       {auth ? (
-        <section className="card">
-          <h2>Panels</h2>
-          <div className="two-col">
-            <div>
-              <h3>My Panels</h3>
-              <button
-                type="button"
-                onClick={() => void loadPanels(auth.accessToken)}
-                disabled={isBusy}
-              >
-                Refresh Panels
-              </button>
-              {panels.length === 0 ? <p>No panels yet.</p> : null}
-              <ul>
-                {panels.map((panel) => (
-                  <li key={panel.id}>
-                    <button
-                      type="button"
-                      onClick={() => void handleSelectPanel(panel.id)}
-                      disabled={isBusy}
-                    >
-                      {panel.name} (experts: {panel.experts.length})
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+        <section className="dashboard-shell">
+          <div className="dashboard-actions">
+            <button
+              type="button"
+              className="create-panel-toggle"
+              onClick={handleToggleCreatePanel}
+              disabled={isBusy}
+            >
+              {isCreatePanelOpen ? "Close Panel Creator" : "Create Panel"}
+            </button>
+          </div>
 
-            <form onSubmit={(event) => void handleCreatePanel(event)}>
-              <h3>Create Panel</h3>
+          {isCreatePanelOpen ? (
+            <form className="card panel-form create-panel-form" onSubmit={(event) => void handleCreatePanel(event)}>
+              <div className="section-copy">
+                <h2>Create Panel</h2>
+                <p>Define the panel, then add the experts who will make it useful.</p>
+              </div>
               <label>
                 Name
                 <input
@@ -601,7 +637,9 @@ export default function HomePage() {
                 />
               </label>
 
-              <h4>Experts</h4>
+              <div className="section-copy compact-copy">
+                <h3>Experts</h3>
+              </div>
               {expertDrafts.map((expert, index) => (
                 <fieldset key={expert.id}>
                   <legend>Expert {index + 1}</legend>
@@ -645,85 +683,125 @@ export default function HomePage() {
                   </button>
                 </fieldset>
               ))}
-              <button type="button" onClick={addExpertDraft} disabled={isBusy}>
-                Add Expert
-              </button>
-              <button type="submit" disabled={isBusy}>
-                Create Panel
-              </button>
-            </form>
-          </div>
-
-          {activePanel ? (
-            <div className="active-info">
-              <h3>Active Panel: {activePanel.name}</h3>
-              <p>Description: {activePanel.description ?? "N/A"}</p>
-              <p>Instructions: {activePanel.instructions ?? "N/A"}</p>
-              <p>Last prompted: {formatTimestamp(activePanel.lastPromptedAt)}</p>
-              <ul>
-                {activePanel.experts.map((expert) => (
-                  <li key={expert.id}>
-                    {expert.name} - {expert.specialization}
-                  </li>
-                ))}
-              </ul>
-
               <div className="action-row">
-                <Link className="button-link" href={`/chat?panelId=${activePanel.id}`}>
-                  Open Chat Workspace
-                </Link>
+                <button type="button" onClick={addExpertDraft} disabled={isBusy}>
+                  Add Expert
+                </button>
+                <button type="submit" disabled={isBusy}>
+                  Create Panel
+                </button>
               </div>
+            </form>
+          ) : null}
 
-              <form onSubmit={(event) => void handleUpdateActivePanel(event)}>
-                <h4>Edit Active Panel</h4>
-                <label>
-                  Name
-                  <input
-                    value={editPanelName}
-                    onChange={(event) => setEditPanelName(event.target.value)}
-                    maxLength={255}
-                    required
-                  />
-                </label>
-                <label>
-                  Description
-                  <input
-                    value={editPanelDescription}
-                    onChange={(event) => setEditPanelDescription(event.target.value)}
-                    maxLength={255}
-                  />
-                </label>
-                <label>
-                  Instructions
-                  <textarea
-                    value={editPanelInstructions}
-                    onChange={(event) => setEditPanelInstructions(event.target.value)}
-                    rows={3}
-                  />
-                </label>
-                <div className="action-row">
-                  <button type="submit" disabled={isBusy}>
-                    Save Panel Changes
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => void handleDeleteActivePanel()}
-                    disabled={isBusy}
-                  >
-                    Delete Active Panel
-                  </button>
+          <div className="panel-stack">
+            {panels.length === 0 ? (
+              <article className="card panel-card empty-card">
+                <div className="section-copy">
+                  <h2>No Panels Yet</h2>
+                  <p>Create your first panel to start building conversations.</p>
                 </div>
-              </form>
-            </div>
-          ) : (
-            <p>Select a panel, then open its chat workspace.</p>
-          )}
+              </article>
+            ) : null}
+
+            {panels.map((panel) => {
+              const isEditing = activePanel?.id === panel.id;
+
+              return (
+                <article
+                  key={panel.id}
+                  className={`card panel-card ${isEditing ? "panel-card-editing" : ""}`}
+                >
+                  <div className="panel-card-top">
+                    <div className="panel-card-center">
+                      <h2>{panel.name}</h2>
+                    </div>
+                    <div className="panel-card-controls">
+                      <button
+                        type="button"
+                        onClick={() => void handleSelectPanel(panel.id)}
+                        disabled={isBusy}
+                      >
+                        {isEditing ? "Close Editor" : "Edit Panel"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className={`panel-description ${panel.description ? "" : "muted"}`}>
+                    {panel.description ?? "No description yet."}
+                  </p>
+
+                  <div className="expert-block">
+                    <p className="expert-heading">Experts:</p>
+                    <ul className="expert-summary-list">
+                      {panel.experts.map((expert) => (
+                        <li key={expert.id}>
+                          {expert.name} - {expert.specialization}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="action-row panel-card-footer">
+                    <Link className="button-link" href={`/chat?panelId=${panel.id}`}>
+                      Open Chat Workspace
+                    </Link>
+                  </div>
+
+                  {isEditing ? (
+                    <form
+                      className="panel-form edit-panel-form"
+                      onSubmit={(event) => void handleUpdateActivePanel(event)}
+                    >
+                      <div className="section-copy compact-copy">
+                        <h3>Edit Panel</h3>
+                      </div>
+                      <label>
+                        Name
+                        <input
+                          value={editPanelName}
+                          onChange={(event) => setEditPanelName(event.target.value)}
+                          maxLength={255}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Description
+                        <input
+                          value={editPanelDescription}
+                          onChange={(event) => setEditPanelDescription(event.target.value)}
+                          maxLength={255}
+                        />
+                      </label>
+                      <label>
+                        Instructions
+                        <textarea
+                          value={editPanelInstructions}
+                          onChange={(event) => setEditPanelInstructions(event.target.value)}
+                          rows={3}
+                        />
+                      </label>
+                      <div className="action-row">
+                        <button type="submit" disabled={isBusy}>
+                          Save Panel Changes
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => void handleDeleteActivePanel()}
+                          disabled={isBusy}
+                        >
+                          Delete Panel
+                        </button>
+                      </div>
+                    </form>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
         </section>
       ) : null}
-
-      {statusMessage ? <p className="status">{statusMessage}</p> : null}
-      {errorMessage ? <p className="error">{errorMessage}</p> : null}
 
       <style jsx>{`
         .page {
@@ -753,7 +831,7 @@ export default function HomePage() {
           font-family: "Trebuchet MS", "Segoe UI", sans-serif;
           display: grid;
           align-content: start;
-          gap: 16px;
+          gap: 18px;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -780,25 +858,44 @@ export default function HomePage() {
           }
         }
 
-        .top-bar {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          flex-wrap: wrap;
+        .hero {
+          position: relative;
+          display: grid;
+          justify-items: center;
+          gap: 14px;
+          padding: 28px 12px 6px;
         }
 
-        .top-bar h1 {
+        .hero-copy {
+          display: grid;
+          gap: 12px;
+          justify-items: center;
+          text-align: center;
+          max-width: 760px;
+        }
+
+        .hero h1 {
           margin: 0;
-          font-size: 2rem;
+          font-size: clamp(2.5rem, 6vw, 4.25rem);
+          line-height: 0.95;
+          letter-spacing: -0.04em;
+        }
+
+        .hero-copy p {
+          margin: 0;
+          max-width: 620px;
+          font-size: 1.05rem;
+          line-height: 1.55;
         }
 
         .auth-summary {
-          display: flex;
+          position: absolute;
+          top: 0;
+          right: 0;
+          display: grid;
           align-items: center;
           justify-content: flex-end;
           gap: 10px;
-          flex-wrap: wrap;
         }
 
         .auth-summary p {
@@ -809,14 +906,16 @@ export default function HomePage() {
         .card {
           background: var(--card-bg);
           border: 1px solid var(--card-border);
-          border-radius: 12px;
-          padding: 16px;
+          border-radius: 16px;
+          padding: 18px;
           display: grid;
-          gap: 12px;
+          gap: 14px;
+          backdrop-filter: blur(6px);
+          box-shadow: 0 22px 40px -34px rgba(15, 23, 42, 0.5);
         }
 
         .auth-form {
-          max-width: 640px;
+          width: min(100%, 640px);
         }
 
         .auth-actions {
@@ -825,18 +924,133 @@ export default function HomePage() {
           grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         }
 
-        .two-col {
-          display: grid;
-          gap: 12px;
-          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        .auth-card,
+        .dashboard-shell {
+          width: min(100%, 860px);
+          margin: 0 auto;
         }
 
+        .dashboard-shell {
+          display: grid;
+          gap: 14px;
+        }
+
+        .dashboard-actions {
+          display: grid;
+        }
+
+        .create-panel-toggle {
+          width: 100%;
+          border-radius: 14px;
+          padding: 14px 18px;
+          font-size: 1.08rem;
+          font-weight: 700;
+        }
+
+        .panel-stack {
+          display: grid;
+          gap: 14px;
+        }
+
+        .panel-card {
+          gap: 16px;
+        }
+
+        .panel-card-editing {
+          border-color: var(--button-border);
+        }
+
+        .panel-card-top {
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
+          align-items: start;
+          gap: 12px;
+        }
+
+        .panel-card-center {
+          grid-column: 2;
+          justify-self: center;
+          text-align: center;
+          min-width: 0;
+        }
+
+        .panel-card-center h2 {
+          margin: 0;
+          font-size: clamp(1.45rem, 3vw, 1.95rem);
+          line-height: 1.05;
+          overflow-wrap: anywhere;
+        }
+
+        .panel-card-controls {
+          grid-column: 3;
+          justify-self: end;
+        }
+
+        .panel-card-controls button {
+          min-width: 128px;
+        }
+
+        .panel-description {
+          margin: 0;
+          font-size: 1rem;
+          line-height: 1.5;
+          white-space: pre-wrap;
+        }
+
+        .muted {
+          opacity: 0.72;
+        }
+
+        .expert-block {
+          display: grid;
+          gap: 8px;
+        }
+
+        .expert-heading {
+          margin: 0;
+          font-weight: 700;
+        }
+
+        .expert-summary-list {
+          margin: 0;
+          padding-left: 18px;
+          display: grid;
+          gap: 6px;
+        }
+
+        .panel-card-footer {
+          justify-content: flex-start;
+        }
+
+        .section-copy {
+          display: grid;
+          gap: 6px;
+          justify-items: center;
+          text-align: center;
+        }
+
+        .section-copy h2,
+        .section-copy h3 {
+          margin: 0;
+        }
+
+        .section-copy p {
+          margin: 0;
+          line-height: 1.5;
+        }
+
+        .compact-copy {
+          justify-items: start;
+          text-align: left;
+        }
+
+        .panel-form,
         form {
           display: grid;
           gap: 10px;
-          padding: 10px;
+          padding: 12px;
           border: 1px solid var(--form-border);
-          border-radius: 10px;
+          border-radius: 14px;
           background: var(--form-bg);
         }
 
@@ -865,8 +1079,8 @@ export default function HomePage() {
         button,
         .button-link {
           border: 1px solid var(--button-border);
-          border-radius: 8px;
-          padding: 8px 10px;
+          border-radius: 10px;
+          padding: 10px 12px;
           background: var(--button-bg);
           color: var(--text-main);
           cursor: pointer;
@@ -874,6 +1088,12 @@ export default function HomePage() {
           display: inline-flex;
           align-items: center;
           justify-content: center;
+          transition: transform 120ms ease, background-color 120ms ease;
+        }
+
+        button:hover,
+        .button-link:hover {
+          transform: translateY(-1px);
         }
 
         button:disabled {
@@ -890,8 +1110,8 @@ export default function HomePage() {
 
         fieldset {
           border: 1px solid var(--form-border);
-          border-radius: 8px;
-          padding: 8px;
+          border-radius: 12px;
+          padding: 10px;
           display: grid;
           gap: 8px;
         }
@@ -901,29 +1121,22 @@ export default function HomePage() {
           font-weight: 700;
         }
 
-        .active-info {
-          border: 1px solid var(--panel-border);
-          border-radius: 10px;
-          padding: 10px;
-          background: var(--panel-bg);
-          display: grid;
-          gap: 8px;
-        }
-
-        .active-info p {
-          margin: 0;
-        }
-
         .status {
           margin: 0;
           color: var(--status-color);
           font-weight: 700;
+          width: min(100%, 860px);
+          margin-left: auto;
+          margin-right: auto;
         }
 
         .error {
           margin: 0;
           color: var(--error-color);
           font-weight: 700;
+          width: min(100%, 860px);
+          margin-left: auto;
+          margin-right: auto;
         }
 
         .action-row {
@@ -936,6 +1149,44 @@ export default function HomePage() {
           border-color: var(--danger-border);
           background: var(--danger-bg);
           color: var(--danger-text);
+        }
+
+        @media (max-width: 720px) {
+          .page {
+            padding: 18px 14px 28px;
+          }
+
+          .hero {
+            padding-top: 12px;
+          }
+
+          .auth-summary {
+            position: static;
+            justify-items: center;
+          }
+
+          .auth-summary p {
+            text-align: center;
+          }
+
+          .panel-card-top {
+            grid-template-columns: 1fr;
+          }
+
+          .panel-card-center,
+          .panel-card-controls {
+            grid-column: auto;
+            justify-self: stretch;
+          }
+
+          .panel-card-controls button {
+            width: 100%;
+          }
+
+          .action-row {
+            display: grid;
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
     </main>
