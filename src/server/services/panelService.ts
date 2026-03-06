@@ -15,6 +15,10 @@ const createExpertSchema = z.object({
   soul: z.string().trim().optional().default("")
 });
 
+const updateExpertSchema = createExpertSchema.extend({
+  id: z.number().int().positive().optional()
+});
+
 const createPanelSchema = z.object({
   name: z.string().trim().min(1).max(DB_FIELD_LIMITS.panel.name),
   description: z.string().trim().max(DB_FIELD_LIMITS.panel.description).nullable().optional(),
@@ -28,11 +32,15 @@ const updatePanelSchema = z
   .object({
     name: z.string().trim().min(1).max(DB_FIELD_LIMITS.panel.name).optional(),
     description: z.string().trim().max(DB_FIELD_LIMITS.panel.description).nullable().optional(),
-    instructions: z.string().trim().nullable().optional()
+    instructions: z.string().trim().nullable().optional(),
+    experts: z.array(updateExpertSchema).min(1).max(appConfig.llmMaxExpertsPerPanel).optional()
   })
   .refine(
     (value) =>
-      value.name !== undefined || value.description !== undefined || value.instructions !== undefined,
+      value.name !== undefined ||
+      value.description !== undefined ||
+      value.instructions !== undefined ||
+      value.experts !== undefined,
     {
       message: "At least one panel field must be provided."
     }
@@ -92,6 +100,13 @@ function parseUpdatePanelInput(input: unknown): UpdatePanelInput {
   const parsed = updatePanelSchema.safeParse(input);
   if (!parsed.success) {
     throw new PanelServiceError("VALIDATION", 400, "Invalid panel payload.");
+  }
+
+  const providedExpertIds = (parsed.data.experts ?? [])
+    .map((expert) => expert.id)
+    .filter((expertId): expertId is number => expertId !== undefined);
+  if (new Set(providedExpertIds).size !== providedExpertIds.length) {
+    throw new PanelServiceError("VALIDATION", 400, "Panel payload contains duplicate expert ids.");
   }
 
   return parsed.data;
@@ -234,56 +249,177 @@ export async function updatePanelForAccount(
   input: unknown
 ): Promise<PanelView> {
   /**
-   * Purpose: Updates one account-owned panel metadata (name/description/instructions).
+   * Purpose: Updates one account-owned panel metadata and optional expert roster.
    * Inputs: Authenticated account id, panel id, and update payload.
    * Outputs: Updated panel DTO including expert list.
    */
   const parsed = parseUpdatePanelInput(input);
+
+  if (parsed.experts === undefined) {
+    const ownedPanel = await prisma.panel.findFirst({
+      where: {
+        id: panelId,
+        accountId
+      },
+      select: { id: true }
+    });
+
+    if (!ownedPanel) {
+      throw new PanelServiceError("NOT_FOUND", 404, "Panel not found.");
+    }
+
+    const updated = await prisma.panel.update({
+      where: { id: panelId },
+      data: {
+        ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+        ...(parsed.description !== undefined
+          ? { description: normalizeNullableText(parsed.description) }
+          : {}),
+        ...(parsed.instructions !== undefined
+          ? { instructions: normalizeNullableText(parsed.instructions) }
+          : {})
+      },
+      select: {
+        id: true,
+        accountId: true,
+        name: true,
+        description: true,
+        instructions: true,
+        lastPromptedAt: true,
+        experts: {
+          orderBy: { position: "asc" },
+          select: {
+            id: true,
+            name: true,
+            specialization: true,
+            soul: true,
+            position: true
+          }
+        }
+      }
+    });
+
+    return updated;
+  }
 
   const ownedPanel = await prisma.panel.findFirst({
     where: {
       id: panelId,
       accountId
     },
-    select: { id: true }
+    select: {
+      id: true,
+      experts: {
+        orderBy: { position: "asc" },
+        select: {
+          id: true,
+          position: true,
+          _count: {
+            select: {
+              responses: true
+            }
+          }
+        }
+      }
+    }
   });
 
   if (!ownedPanel) {
     throw new PanelServiceError("NOT_FOUND", 404, "Panel not found.");
   }
 
-  const updated = await prisma.panel.update({
-    where: { id: panelId },
-    data: {
-      ...(parsed.name !== undefined ? { name: parsed.name } : {}),
-      ...(parsed.description !== undefined
-        ? { description: normalizeNullableText(parsed.description) }
-        : {}),
-      ...(parsed.instructions !== undefined
-        ? { instructions: normalizeNullableText(parsed.instructions) }
-        : {})
-    },
-    select: {
-      id: true,
-      accountId: true,
-      name: true,
-      description: true,
-      instructions: true,
-      lastPromptedAt: true,
-      experts: {
-        orderBy: { position: "asc" },
-        select: {
-          id: true,
-          name: true,
-          specialization: true,
-          soul: true,
-          position: true
+  const nextExperts = parsed.experts;
+  const existingExpertsById = new Map(ownedPanel.experts.map((expert) => [expert.id, expert]));
+  const referencedExpertIds = nextExperts
+    .map((expert) => expert.id)
+    .filter((expertId): expertId is number => expertId !== undefined);
+
+  for (const expertId of referencedExpertIds) {
+    if (!existingExpertsById.has(expertId)) {
+      throw new PanelServiceError("VALIDATION", 400, "Panel payload references an unknown expert.");
+    }
+  }
+
+  const removedExperts = ownedPanel.experts.filter((expert) => !referencedExpertIds.includes(expert.id));
+  if (removedExperts.some((expert) => expert._count.responses > 0)) {
+    throw new PanelServiceError(
+      "VALIDATION",
+      400,
+      "Cannot remove experts that already have saved responses."
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    /**
+     * Purpose: Applies panel metadata and expert roster changes atomically while preserving response-linked expert ids.
+     * Inputs: Transaction-scoped Prisma client plus validated panel update payload.
+     * Outputs: No direct return value; writes panel/expert changes atomically.
+     */
+    if (
+      parsed.name !== undefined ||
+      parsed.description !== undefined ||
+      parsed.instructions !== undefined
+    ) {
+      await tx.panel.update({
+        where: { id: panelId },
+        data: {
+          ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+          ...(parsed.description !== undefined
+            ? { description: normalizeNullableText(parsed.description) }
+            : {}),
+          ...(parsed.instructions !== undefined
+            ? { instructions: normalizeNullableText(parsed.instructions) }
+            : {})
         }
+      });
+    }
+
+    for (const [index, expert] of ownedPanel.experts.entries()) {
+      await tx.expert.update({
+        where: { id: expert.id },
+        data: {
+          position: appConfig.llmMaxExpertsPerPanel + 1000 + index
+        }
+      });
+    }
+
+    if (removedExperts.length > 0) {
+      await tx.expert.deleteMany({
+        where: {
+          id: {
+            in: removedExperts.map((expert) => expert.id)
+          }
+        }
+      });
+    }
+
+    for (const [index, expert] of nextExperts.entries()) {
+      if (expert.id !== undefined) {
+        await tx.expert.update({
+          where: { id: expert.id },
+          data: {
+            name: expert.name,
+            specialization: expert.specialization,
+            soul: expert.soul,
+            position: index + 1
+          }
+        });
+        continue;
       }
+
+      await tx.expert.create({
+        data: {
+          panelId,
+          name: expert.name,
+          specialization: expert.specialization,
+          soul: expert.soul,
+          position: index + 1
+        }
+      });
     }
   });
 
-  return updated;
+  return getPanelForAccount(accountId, panelId);
 }
 
 export async function deletePanelForAccount(accountId: number, panelId: number): Promise<{ id: number }> {

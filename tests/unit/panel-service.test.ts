@@ -8,7 +8,13 @@ const prismaMock = vi.hoisted(() => ({
     findFirst: vi.fn(),
     update: vi.fn(),
     delete: vi.fn()
-  }
+  },
+  expert: {
+    update: vi.fn(),
+    create: vi.fn(),
+    deleteMany: vi.fn()
+  },
+  $transaction: vi.fn()
 }));
 
 vi.mock("../../src/lib/db", () => ({
@@ -28,6 +34,13 @@ beforeEach(() => {
   prismaMock.panel.findFirst.mockReset();
   prismaMock.panel.update.mockReset();
   prismaMock.panel.delete.mockReset();
+  prismaMock.expert.update.mockReset();
+  prismaMock.expert.create.mockReset();
+  prismaMock.expert.deleteMany.mockReset();
+  prismaMock.$transaction.mockReset();
+  prismaMock.$transaction.mockImplementation(async (callback: (tx: typeof prismaMock) => unknown) =>
+    callback(prismaMock)
+  );
 });
 
 describe("panel service", () => {
@@ -210,6 +223,141 @@ describe("panel service", () => {
         }
       })
     );
+  });
+
+  it("updates panel experts when roster changes are valid", async () => {
+    prismaMock.panel.findFirst
+      .mockResolvedValueOnce({
+        id: 20,
+        experts: [
+          {
+            id: 201,
+            position: 1,
+            _count: {
+              responses: 0
+            }
+          },
+          {
+            id: 202,
+            position: 2,
+            _count: {
+              responses: 0
+            }
+          }
+        ]
+      })
+      .mockResolvedValueOnce({
+        id: 20,
+        accountId: 7,
+        name: "Revised panel",
+        description: "Updated description",
+        instructions: "Tighten reasoning",
+        lastPromptedAt: null,
+        experts: [
+          {
+            id: 201,
+            name: "Expert A",
+            specialization: "Strategy",
+            soul: "Concise",
+            position: 1
+          },
+          {
+            id: 203,
+            name: "Expert C",
+            specialization: "Operations",
+            soul: "Pragmatic",
+            position: 2
+          }
+        ]
+      });
+    prismaMock.panel.update.mockResolvedValue({ id: 20 });
+    prismaMock.expert.update.mockResolvedValue({});
+    prismaMock.expert.create.mockResolvedValue({
+      id: 203
+    });
+    prismaMock.expert.deleteMany.mockResolvedValue({
+      count: 1
+    });
+
+    const updated = await updatePanelForAccount(7, 20, {
+      name: "Revised panel",
+      description: "Updated description",
+      instructions: "Tighten reasoning",
+      experts: [
+        {
+          id: 201,
+          name: "Expert A",
+          specialization: "Strategy",
+          soul: "Concise"
+        },
+        {
+          name: "Expert C",
+          specialization: "Operations",
+          soul: "Pragmatic"
+        }
+      ]
+    });
+
+    expect(updated.experts).toHaveLength(2);
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+    expect(prismaMock.expert.deleteMany).toHaveBeenCalledWith({
+      where: {
+        id: {
+          in: [202]
+        }
+      }
+    });
+    expect(prismaMock.expert.create).toHaveBeenCalledWith({
+      data: {
+        panelId: 20,
+        name: "Expert C",
+        specialization: "Operations",
+        soul: "Pragmatic",
+        position: 2
+      }
+    });
+    expect(prismaMock.expert.update).toHaveBeenCalledWith({
+      where: {
+        id: 201
+      },
+      data: {
+        name: "Expert A",
+        specialization: "Strategy",
+        soul: "Concise",
+        position: 1
+      }
+    });
+  });
+
+  it("rejects removing experts that already have responses", async () => {
+    prismaMock.panel.findFirst.mockResolvedValue({
+      id: 20,
+      experts: [
+        {
+          id: 201,
+          position: 1,
+          _count: {
+            responses: 2
+          }
+        }
+      ]
+    });
+
+    await expect(
+      updatePanelForAccount(7, 20, {
+        experts: [
+          {
+            name: "Replacement Expert",
+            specialization: "Operations",
+            soul: "Pragmatic"
+          }
+        ]
+      })
+    ).rejects.toMatchObject({
+      status: 400
+    });
+
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 
   it("deletes panel for owner", async () => {
