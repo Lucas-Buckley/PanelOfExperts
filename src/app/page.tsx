@@ -1144,7 +1144,7 @@ export default function HomePage() {
           color: inherit;
           border: 1px solid transparent;
           border-radius: 16px;
-          padding: 54px 18px 18px;
+          padding: 24px 18px 18px;
           background: transparent;
           transition: background-color 120ms ease, border-color 120ms ease;
         }
