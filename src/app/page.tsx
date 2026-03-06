@@ -6,7 +6,7 @@
  * Outputs: Interactive client page for account auth, panel create/select/edit/delete, and chat-page navigation.
  */
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 type AccountIdentity = {
   id: number;
@@ -171,6 +171,7 @@ export default function HomePage() {
    * Inputs: None.
    * Outputs: Home page JSX with form handlers wired to account/panel API routes.
    */
+  const router = useRouter();
   const [auth, setAuth] = useState<AuthSuccess | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -781,7 +782,7 @@ export default function HomePage() {
               return (
                 <article
                   key={panel.id}
-                  className={`card panel-card ${isEditing ? "panel-card-editing" : ""}`}
+                  className={`card panel-card panel-card-interactive ${isEditing ? "panel-card-editing" : ""}`}
                 >
                   <div className="panel-card-controls">
                     <button
@@ -793,7 +794,12 @@ export default function HomePage() {
                     </button>
                   </div>
 
-                  <Link className="panel-card-launch" href={`/chat?panelId=${panel.id}`}>
+                  <button
+                    type="button"
+                    className="panel-card-launch"
+                    onClick={() => router.push(`/chat?panelId=${panel.id}`)}
+                    disabled={isBusy}
+                  >
                     <div className="panel-card-center">
                       <h2>{panel.name}</h2>
                     </div>
@@ -812,7 +818,7 @@ export default function HomePage() {
                         ))}
                       </ul>
                     </div>
-                  </Link>
+                  </button>
 
                   {isEditing ? (
                     <form
@@ -939,6 +945,7 @@ export default function HomePage() {
           --field-border: #c5cedd;
           --button-border: #44577a;
           --button-bg: #eef4ff;
+          --button-hover: #e2ebff;
           --panel-bg: #f9fbff;
           --panel-border: #ced8eb;
           --status-color: #1b5e20;
@@ -970,6 +977,7 @@ export default function HomePage() {
             --field-border: #475569;
             --button-border: #64748b;
             --button-bg: #1e293b;
+            --button-hover: #273449;
             --panel-bg: #0f172a;
             --panel-border: #334155;
             --status-color: #86efac;
@@ -1081,6 +1089,21 @@ export default function HomePage() {
           gap: 16px;
         }
 
+        .panel-card-interactive {
+          padding: 0;
+          gap: 0;
+          overflow: hidden;
+          background: var(--panel-bg);
+          transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+        }
+
+        .panel-card-interactive:hover,
+        .panel-card-interactive:focus-within {
+          border-color: color-mix(in srgb, var(--button-border) 75%, var(--card-border));
+          background: color-mix(in srgb, var(--panel-bg) 88%, var(--button-bg));
+          box-shadow: 0 24px 38px -32px rgba(15, 23, 42, 0.6);
+        }
+
         .panel-card-editing {
           border-color: var(--button-border);
         }
@@ -1111,18 +1134,20 @@ export default function HomePage() {
         .panel-card-launch {
           display: grid;
           gap: 16px;
+          width: 100%;
+          text-align: left;
           text-decoration: none;
           color: inherit;
           border: 1px solid transparent;
-          border-radius: 14px;
-          padding: 40px 12px 8px;
-          transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease;
+          border-radius: 16px;
+          padding: 54px 18px 18px;
+          background: transparent;
+          transition: background-color 120ms ease, border-color 120ms ease;
         }
 
         .panel-card-launch:hover {
-          transform: translateY(-1px);
-          background: color-mix(in srgb, var(--button-bg) 48%, transparent);
-          border-color: color-mix(in srgb, var(--button-border) 55%, transparent);
+          background: color-mix(in srgb, var(--button-bg) 64%, transparent);
+          border-color: color-mix(in srgb, var(--button-border) 65%, transparent);
         }
 
         .panel-card-launch:focus-visible {
@@ -1231,6 +1256,7 @@ export default function HomePage() {
         button:hover,
         .button-link:hover {
           transform: translateY(-1px);
+          background: var(--button-hover);
         }
 
         button:disabled {
@@ -1315,7 +1341,7 @@ export default function HomePage() {
           }
 
           .panel-card-launch {
-            padding-top: 8px;
+            padding-top: 18px;
           }
 
           .action-row {
