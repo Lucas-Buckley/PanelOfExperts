@@ -1133,6 +1133,10 @@ export default function HomePage() {
 
         .panel-card-launch {
           display: grid;
+          justify-content: initial;
+          justify-items: stretch;
+          align-items: stretch;
+          align-content: start;
           gap: 16px;
           width: 100%;
           text-align: left;
@@ -1161,6 +1165,8 @@ export default function HomePage() {
           font-size: 1rem;
           line-height: 1.5;
           white-space: pre-wrap;
+          justify-self: stretch;
+          text-align: left;
         }
 
         .muted {
@@ -1170,6 +1176,8 @@ export default function HomePage() {
         .expert-block {
           display: grid;
           gap: 8px;
+          justify-self: stretch;
+          text-align: left;
         }
 
         .expert-heading {
@@ -1182,6 +1190,7 @@ export default function HomePage() {
           padding-left: 18px;
           display: grid;
           gap: 6px;
+          justify-items: start;
         }
 
         .section-copy {
