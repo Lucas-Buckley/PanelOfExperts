@@ -166,6 +166,7 @@ function buildTokenCapRetryPrompt(prompt: string): string {
     "- Return only the final answer.",
     `- Target about ${retryTargetTokens} tokens.`,
     "- Prefer short natural prose, not headings or bullet lists.",
+    "- Default to 2-4 short paragraphs instead of one large block.",
     "- Use a list only if the user explicitly asked for one.",
     "- Do not include extra preamble."
   ].join("\n");

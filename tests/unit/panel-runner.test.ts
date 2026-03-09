@@ -152,9 +152,13 @@ describe("panel runner", () => {
     expect(seenPrompts[0]).toContain(
       "Write naturally and avoid labeled sections, headings, or list formatting unless the user asks for it."
     );
+    expect(seenPrompts[0]).toContain(
+      "Default to 2-4 short paragraphs unless the user asks for a different format."
+    );
     expect(seenPrompts[0]).toContain("Length target:");
     expect(seenPrompts[0]).toContain("Aim for about 210 tokens or less.");
     expect(seenPrompts[0]).toContain("Prefer short natural prose, not headings or bullet lists.");
+    expect(seenPrompts[0]).toContain("Default to 2-4 short paragraphs instead of one large block.");
     expect(seenPrompts[0]).toContain("Use a list only when the user explicitly asks for one.");
   });
 
@@ -203,9 +207,13 @@ describe("panel runner", () => {
     expect(seenPrompts[0]).toContain(
       "Write naturally and avoid labeled sections, headings, or list formatting unless the user asks for it."
     );
+    expect(seenPrompts[0]).toContain(
+      "Default to 2-4 short paragraphs unless the user asks for a different format."
+    );
     expect(seenPrompts[0]).toContain("Avoid repeating prior experts verbatim; add a complementary angle from your specialization.");
     expect(seenPrompts[0]).toContain("Length target:");
     expect(seenPrompts[0]).toContain("Prefer short natural prose, not headings or bullet lists.");
+    expect(seenPrompts[0]).toContain("Default to 2-4 short paragraphs instead of one large block.");
     expect(seenPrompts[0]).toContain("Use a list only when the user explicitly asks for one.");
   });
 
@@ -255,6 +263,9 @@ describe("panel runner", () => {
     expect(seenPrompts[1]).toContain("Inter-expert interaction requirements (required):");
     expect(seenPrompts[1]).toContain(
       "Prefer plain prose over bullets or outline formatting unless the user explicitly asked for a list."
+    );
+    expect(seenPrompts[1]).toContain(
+      "Default to 2-4 short paragraphs; avoid one oversized paragraph unless the user asked for that style."
     );
     expect(seenPrompts[1]).toContain("Do not use canned section headings or labels such as 'Response to prior expert', 'My distinct angle', or 'Caveat or disagreement'.");
     expect(seenPrompts[1]).not.toContain("1) Response to prior expert:");

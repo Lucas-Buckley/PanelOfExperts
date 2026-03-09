@@ -102,6 +102,7 @@ function buildTokenLengthGuidanceLines(): string[] {
     `- Aim for about ${targetTokens} tokens or less.`,
     "- Keep it concise to reduce truncation risk.",
     "- Prefer short natural prose, not headings or bullet lists.",
+    "- Default to 2-4 short paragraphs instead of one large block.",
     "- Use a list only when the user explicitly asks for one."
   ];
 }
@@ -236,6 +237,7 @@ function buildInterExpertResponseContract(
     "Inter-expert interaction requirements (required):",
     "- Write naturally as one coherent response.",
     "- Prefer plain prose over bullets or outline formatting unless the user explicitly asked for a list.",
+    "- Default to 2-4 short paragraphs; avoid one oversized paragraph unless the user asked for that style.",
     "- Do not use canned section headings or labels such as 'Response to prior expert', 'My distinct angle', or 'Caveat or disagreement'.",
     `- Explicitly reference at least one prior expert by name from this list:\n${requiredReferences}`,
     "- Use expert names only; do not use numeric labels like [1].",
@@ -364,6 +366,7 @@ function composePromptForExpert(args: {
       "",
       "Respond as this expert with concise, concrete reasoning.",
       "Write naturally and avoid labeled sections, headings, or list formatting unless the user asks for it.",
+      "Default to 2-4 short paragraphs unless the user asks for a different format.",
       "Focus on a distinctive angle from your specialization.",
       ...buildTokenLengthGuidanceLines()
     ].join("\n\n");
@@ -385,6 +388,7 @@ function composePromptForExpert(args: {
     "",
     "Respond as this expert while considering both context and prior expert outputs.",
     "Write naturally and avoid labeled sections, headings, or list formatting unless the user asks for it.",
+    "Default to 2-4 short paragraphs unless the user asks for a different format.",
     "Avoid repeating prior experts verbatim; add a complementary angle from your specialization.",
     buildInterExpertResponseContract(args.priorCurrentTurnOutputs),
     ...buildTokenLengthGuidanceLines()
