@@ -969,7 +969,6 @@ export default function ChatPage() {
                                 {expertNameById.get(response.expertId) ??
                                   `Expert ${response.sequence}`}
                               </strong>
-                              <span>{formatTimestamp(response.createdAt)}</span>
                             </div>
                             <p>{response.content}</p>
                           </article>
@@ -1596,7 +1595,7 @@ export default function ChatPage() {
 
         .composer textarea {
           min-height: 70px;
-          resize: vertical;
+          resize: none;
           border-radius: 12px;
           line-height: 1.4;
         }
