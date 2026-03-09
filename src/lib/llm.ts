@@ -165,7 +165,8 @@ function buildTokenCapRetryPrompt(prompt: string): string {
     "Output length requirement for this retry:",
     "- Return only the final answer.",
     `- Target about ${retryTargetTokens} tokens.`,
-    "- Use at most 5 bullet points when bullet points help.",
+    "- Prefer short natural prose, not headings or bullet lists.",
+    "- Use a list only if the user explicitly asked for one.",
     "- Do not include extra preamble."
   ].join("\n");
 }

@@ -101,7 +101,8 @@ function buildTokenLengthGuidanceLines(): string[] {
     "Length target:",
     `- Aim for about ${targetTokens} tokens or less.`,
     "- Keep it concise to reduce truncation risk.",
-    "- Use at most 5 bullet points when bullet points help."
+    "- Prefer short natural prose, not headings or bullet lists.",
+    "- Use a list only when the user explicitly asks for one."
   ];
 }
 
@@ -234,6 +235,7 @@ function buildInterExpertResponseContract(
   return [
     "Inter-expert interaction requirements (required):",
     "- Write naturally as one coherent response.",
+    "- Prefer plain prose over bullets or outline formatting unless the user explicitly asked for a list.",
     "- Do not use canned section headings or labels such as 'Response to prior expert', 'My distinct angle', or 'Caveat or disagreement'.",
     `- Explicitly reference at least one prior expert by name from this list:\n${requiredReferences}`,
     "- Use expert names only; do not use numeric labels like [1].",
@@ -361,7 +363,7 @@ function composePromptForExpert(args: {
       args.promptContent,
       "",
       "Respond as this expert with concise, concrete reasoning.",
-      "Write naturally and avoid labeled sections or template headings.",
+      "Write naturally and avoid labeled sections, headings, or list formatting unless the user asks for it.",
       "Focus on a distinctive angle from your specialization.",
       ...buildTokenLengthGuidanceLines()
     ].join("\n\n");
@@ -382,7 +384,7 @@ function composePromptForExpert(args: {
     formatCurrentTurnOutputs(args.priorCurrentTurnOutputs),
     "",
     "Respond as this expert while considering both context and prior expert outputs.",
-    "Write naturally and avoid labeled sections or template headings.",
+    "Write naturally and avoid labeled sections, headings, or list formatting unless the user asks for it.",
     "Avoid repeating prior experts verbatim; add a complementary angle from your specialization.",
     buildInterExpertResponseContract(args.priorCurrentTurnOutputs),
     ...buildTokenLengthGuidanceLines()
