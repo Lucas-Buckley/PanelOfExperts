@@ -223,7 +223,7 @@ function buildInterExpertResponseContract(
   priorCurrentTurnOutputs: PanelRunnerResponse[]
 ): string {
   /**
-   * Purpose: Builds explicit response-format requirements that force inter-expert engagement.
+   * Purpose: Builds natural-language response requirements that still force inter-expert engagement.
    * Inputs: Prior expert outputs generated in this same turn.
    * Outputs: Required output contract text for downstream experts.
    */
@@ -232,15 +232,14 @@ function buildInterExpertResponseContract(
     .join("\n");
 
   return [
-    "Inter-expert response requirements (required):",
-    "1) Response to prior expert:",
+    "Inter-expert interaction requirements (required):",
+    "- Write naturally as one coherent response.",
+    "- Do not use canned section headings or labels such as 'Response to prior expert', 'My distinct angle', or 'Caveat or disagreement'.",
     `- Explicitly reference at least one prior expert by name from this list:\n${requiredReferences}`,
     "- Use expert names only; do not use numeric labels like [1].",
-    "- State one point you agree with or challenge.",
-    "2) My distinct angle:",
-    "- Add one non-redundant point from your specialization.",
-    "3) Caveat or disagreement:",
-    "- Include one caveat, disagreement, or scope boundary."
+    "- Engage at least one specific point from a prior expert by agreeing, refining, or challenging it.",
+    "- Add at least one non-redundant point from your specialization.",
+    "- If you have a caveat, disagreement, or scope boundary, weave it in naturally instead of labeling it as a section."
   ].join("\n");
 }
 
@@ -362,6 +361,7 @@ function composePromptForExpert(args: {
       args.promptContent,
       "",
       "Respond as this expert with concise, concrete reasoning.",
+      "Write naturally and avoid labeled sections or template headings.",
       "Focus on a distinctive angle from your specialization.",
       ...buildTokenLengthGuidanceLines()
     ].join("\n\n");
@@ -382,6 +382,7 @@ function composePromptForExpert(args: {
     formatCurrentTurnOutputs(args.priorCurrentTurnOutputs),
     "",
     "Respond as this expert while considering both context and prior expert outputs.",
+    "Write naturally and avoid labeled sections or template headings.",
     "Avoid repeating prior experts verbatim; add a complementary angle from your specialization.",
     buildInterExpertResponseContract(args.priorCurrentTurnOutputs),
     ...buildTokenLengthGuidanceLines()

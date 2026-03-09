@@ -149,6 +149,7 @@ describe("panel runner", () => {
     expect(seenPrompts[0]).toContain("No other experts in this panel.");
     expect(seenPrompts[0]).not.toContain("Conversation context from recent history:");
     expect(seenPrompts[0]).not.toContain("Prior expert outputs from this same turn:");
+    expect(seenPrompts[0]).toContain("Write naturally and avoid labeled sections or template headings.");
     expect(seenPrompts[0]).toContain("Length target:");
     expect(seenPrompts[0]).toContain("Aim for about 210 tokens or less.");
   });
@@ -195,6 +196,7 @@ describe("panel runner", () => {
     expect(seenPrompts[0]).toContain("Conversation context from recent history:");
     expect(seenPrompts[0]).toContain("How should we launch this?");
     expect(seenPrompts[0]).toContain("Start with a narrow ICP.");
+    expect(seenPrompts[0]).toContain("Write naturally and avoid labeled sections or template headings.");
     expect(seenPrompts[0]).toContain("Avoid repeating prior experts verbatim; add a complementary angle from your specialization.");
     expect(seenPrompts[0]).toContain("Length target:");
     expect(seenPrompts[0]).toContain("Use at most 5 bullet points when bullet points help.");
@@ -243,7 +245,11 @@ describe("panel runner", () => {
     expect(seenPrompts[1]).toContain("- Planner: Roadmapping");
     expect(seenPrompts[1]).toContain("Prior expert outputs from this same turn:");
     expect(seenPrompts[1]).toContain("Planner: First expert answer");
-    expect(seenPrompts[1]).toContain("Inter-expert response requirements (required):");
+    expect(seenPrompts[1]).toContain("Inter-expert interaction requirements (required):");
+    expect(seenPrompts[1]).toContain("Do not use canned section headings or labels such as 'Response to prior expert', 'My distinct angle', or 'Caveat or disagreement'.");
+    expect(seenPrompts[1]).not.toContain("1) Response to prior expert:");
+    expect(seenPrompts[1]).not.toContain("2) My distinct angle:");
+    expect(seenPrompts[1]).not.toContain("3) Caveat or disagreement:");
     expect(seenPrompts[1]).not.toContain("[1] Planner");
   });
 
