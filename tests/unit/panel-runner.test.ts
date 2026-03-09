@@ -226,7 +226,7 @@ describe("panel runner", () => {
       return createMockLlmResponse(
         callCount === 1
           ? "First expert answer"
-          : "Response to Planner: I agree, and add an execution plan."
+          : "I agree with Planner and add an execution plan."
       );
     });
 
@@ -285,9 +285,9 @@ describe("panel runner", () => {
         return createMockLlmResponse("reply-from-A");
       }
       if (expertName === "C") {
-        return createMockLlmResponse("Response to A: reply-from-C");
+        return createMockLlmResponse("I agree with A and add reply-from-C.");
       }
-      return createMockLlmResponse("Response to C: reply-from-B");
+      return createMockLlmResponse("I agree with C and add reply-from-B.");
     });
 
     const result = await runPanel({
@@ -375,7 +375,10 @@ describe("panel runner", () => {
     expect(callCount).toBe(3);
     expect(seenPrompts[2]).toContain("Correction required:");
     expect(seenPrompts[2]).toContain(
-      "Your previous attempt did not satisfy the inter-expert reference rules."
+      "Your previous attempt sounded too templated or did not satisfy the response rules."
+    );
+    expect(seenPrompts[2]).toContain(
+      "Do not use headings, label-like transitions, or meta phrases such as 'from a ... lens', 'from my specialization', or 'a practical caveat'."
     );
     expect(result.responses[1].content).toContain("Planner");
     expect(result.responses[1].content).not.toContain("[1]");
@@ -425,6 +428,48 @@ describe("panel runner", () => {
     expect(seenPrompts[2]).toContain("Use expert names only; do not use numeric labels like [1].");
     expect(result.responses[1].content).toContain("Planner");
     expect(result.responses[1].content).not.toContain("[1]");
+  });
+
+  it("retries first expert once when response uses templated meta-framing", async () => {
+    const seenPrompts: string[] = [];
+    let callCount = 0;
+    const { runPanel } = await importPanelRunnerWithMock("simulated", async ({ prompt }) => {
+      seenPrompts.push(prompt);
+      callCount += 1;
+      if (callCount === 1) {
+        return createMockLlmResponse(
+          "From a moral-philosophical lens, the trolley problem asks whether intervention is justified."
+        );
+      }
+      return createMockLlmResponse(
+        "The trolley problem asks whether intervening to save more lives can justify directly causing one death."
+      );
+    });
+
+    const result = await runPanel({
+      conversationId: 9,
+      panelId: 3,
+      panelName: "Launch Council",
+      panelInstructions: "Stay concise.",
+      promptContent: "Solve the trolley problem.",
+      history: [],
+      experts: [
+        {
+          id: 1,
+          name: "Moral Philosopher",
+          specialization: "Ethics",
+          soul: "Analytical",
+          position: 1
+        }
+      ]
+    });
+
+    expect(callCount).toBe(2);
+    expect(seenPrompts[1]).toContain("Correction required:");
+    expect(seenPrompts[1]).toContain(
+      "Regenerate the answer so it sounds natural and conversational."
+    );
+    expect(result.responses[0].content).not.toContain("moral-philosophical lens");
   });
 
   it("passes the same runner checks in both simulated and live modes with mocked llm", async () => {

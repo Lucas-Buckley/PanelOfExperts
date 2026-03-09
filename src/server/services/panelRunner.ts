@@ -247,6 +247,26 @@ function buildInterExpertResponseContract(
   ].join("\n");
 }
 
+function hasTemplatedResponseStructure(content: string): boolean {
+  /**
+   * Purpose: Detects templated headings or meta-framing phrases that make expert output sound mechanical.
+   * Inputs: Generated expert response content.
+   * Outputs: `true` when disallowed template-like phrasing is detected, otherwise `false`.
+   */
+  const disallowedPatterns = [
+    /^[A-Z][A-Za-z0-9 '"()/-]{1,48}:\s/m,
+    /\bmy distinct angle\b/i,
+    /\b(?:a|one) practical caveat\b/i,
+    /\bfrom my specialization\b/i,
+    /\bfrom (?:a|an|the) [a-z][a-z -]{0,40} lens\b/i,
+    /\bfrom (?:a|an|the) [a-z][a-z -]{0,40} stance\b/i,
+    /\bfrom (?:a|an|the) [a-z][a-z -]{0,40} standpoint\b/i,
+    /\bfrom (?:a|an|the) [a-z][a-z -]{0,40} perspective\b/i
+  ];
+
+  return disallowedPatterns.some((pattern) => pattern.test(content));
+}
+
 function hasRequiredInterExpertReference(
   content: string,
   priorCurrentTurnOutputs: PanelRunnerResponse[]
@@ -308,23 +328,57 @@ function shouldEnforceInterExpertReference(args: {
   return args.expertIndex > 0 && args.priorCurrentTurnOutputs.length > 0;
 }
 
+function needsResponseCorrection(args: {
+  content: string;
+  expertIndex: number;
+  priorCurrentTurnOutputs: PanelRunnerResponse[];
+}): boolean {
+  /**
+   * Purpose: Determines whether a generated response needs one corrective retry for style or reference issues.
+   * Inputs: Generated content, expert index, and prior same-turn outputs.
+   * Outputs: `true` when retry-worthy structural/reference problems are present.
+   */
+  const hasReferenceIssue =
+    shouldEnforceInterExpertReference({
+      expertIndex: args.expertIndex,
+      priorCurrentTurnOutputs: args.priorCurrentTurnOutputs
+    }) &&
+    (!hasRequiredInterExpertReference(args.content, args.priorCurrentTurnOutputs) ||
+      hasNumberedExpertReference(args.content, args.priorCurrentTurnOutputs));
+
+  return hasReferenceIssue || hasTemplatedResponseStructure(args.content);
+}
+
 function buildInterExpertCorrectionPrompt(args: {
   basePrompt: string;
   priorCurrentTurnOutputs: PanelRunnerResponse[];
   previousAttemptContent: string;
+  expertIndex: number;
 }): string {
   /**
-   * Purpose: Builds one corrective prompt when downstream expert output misses required references.
-   * Inputs: Original composed prompt, prior same-turn outputs, and previous attempt content.
+   * Purpose: Builds one corrective prompt when an expert output violates response-style or inter-expert rules.
+   * Inputs: Original composed prompt, prior same-turn outputs, previous attempt content, and current expert index.
    * Outputs: Corrective retry prompt that preserves context and adds strict remediation instructions.
    */
+  const referenceRulesApply = shouldEnforceInterExpertReference({
+    expertIndex: args.expertIndex,
+    priorCurrentTurnOutputs: args.priorCurrentTurnOutputs
+  });
+
   return [
     args.basePrompt,
     "",
     "Correction required:",
-    "Your previous attempt did not satisfy the inter-expert reference rules.",
-    "Regenerate the answer and satisfy all inter-expert requirements exactly.",
-    buildInterExpertResponseContract(args.priorCurrentTurnOutputs),
+    "Your previous attempt sounded too templated or did not satisfy the response rules.",
+    "Regenerate the answer so it sounds natural and conversational.",
+    "Do not use headings, label-like transitions, or meta phrases such as 'from a ... lens', 'from my specialization', or 'a practical caveat'.",
+    "Do not use one oversized paragraph; default to a few short paragraphs unless the user asked otherwise.",
+    ...(referenceRulesApply
+      ? [
+          "Also satisfy all inter-expert requirements exactly:",
+          buildInterExpertResponseContract(args.priorCurrentTurnOutputs)
+        ]
+      : []),
     "",
     "Previous attempt (for reference only, do not copy verbatim):",
     args.previousAttemptContent
@@ -497,24 +551,27 @@ export async function runPanel(input: PanelRunnerInput): Promise<PanelRunnerResu
     usage = addUsage(usage, llmResponse.usage);
 
     if (
-      shouldEnforceInterExpertReference({
+      needsResponseCorrection({
+        content: llmResponse.content,
         expertIndex: index,
         priorCurrentTurnOutputs: responses
-      }) &&
-      (!hasRequiredInterExpertReference(llmResponse.content, responses) ||
-        hasNumberedExpertReference(llmResponse.content, responses))
+      })
     ) {
       for (
         let retryAttempt = 0;
         retryAttempt < INTER_EXPERT_RETRY_LIMIT &&
-        (!hasRequiredInterExpertReference(llmResponse.content, responses) ||
-          hasNumberedExpertReference(llmResponse.content, responses));
+        needsResponseCorrection({
+          content: llmResponse.content,
+          expertIndex: index,
+          priorCurrentTurnOutputs: responses
+        });
         retryAttempt += 1
       ) {
         const correctionPrompt = buildInterExpertCorrectionPrompt({
           basePrompt: composedPrompt,
           priorCurrentTurnOutputs: responses,
-          previousAttemptContent: llmResponse.content
+          previousAttemptContent: llmResponse.content,
+          expertIndex: index
         });
         llmResponse = await generateWithRetry(correctionPrompt);
         usage = addUsage(usage, llmResponse.usage);
