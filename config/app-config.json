@@ -22,7 +22,8 @@
     }
   },
   "auth": {
-    "accessTokenTtl": "15m"
+    "accessTokenTtl": "15m",
+    "passwordResetTokenTtlMinutes": 30
   },
   "api": {
     "idempotencyReplayTtlHours": 24,

@@ -70,5 +70,10 @@ describe("db field limits", () => {
         `model\\s+IdempotencyRequest\\s+\\{[\\s\\S]*?state\\s+String\\s+@db\\.VarChar\\(${DB_FIELD_LIMITS.idempotency.state}\\)`
       )
     );
+    expect(schema).toMatch(
+      new RegExp(
+        `model\\s+PasswordResetToken\\s+\\{[\\s\\S]*?tokenHash\\s+String\\s+@map\\(\"token_hash\"\\)\\s+@db\\.VarChar\\(${DB_FIELD_LIMITS.passwordReset.tokenHash}\\)`
+      )
+    );
   });
 });

@@ -21,6 +21,11 @@ type AuthSuccess = {
   tokenType: "Bearer";
 };
 
+type DeletedAccount = {
+  id: number;
+  email: string;
+};
+
 type PanelExpertView = {
   id: number;
   name: string;
@@ -302,22 +307,33 @@ export default function ChatPage() {
     setConversationActionsMenu(null);
   }, [activePanelId]);
 
-  const clearSessionForExpiredToken = useCallback((message: string): void => {
+  const clearSignedInState = useCallback((): void => {
     /**
-     * Purpose: Clears all authenticated client state and redirects to login dashboard after token expiry.
-     * Inputs: User-facing auth-expiry error message.
-     * Outputs: No return value; resets session state and navigates to dashboard.
+     * Purpose: Clears all signed-in chat workspace state and persisted auth storage.
+     * Inputs: None.
+     * Outputs: No return value; resets auth, panel, conversation, and prompt-draft state.
      */
     setAuth(null);
     setPanels([]);
     setActivePanelId(null);
     setPanelConversations([]);
     setActiveConversation(null);
+    setPromptInput("");
+    setConversationActionsMenu(null);
     writeStoredAuth(null);
+  }, []);
+
+  const clearSessionForExpiredToken = useCallback((message: string): void => {
+    /**
+     * Purpose: Clears all authenticated client state and redirects to login dashboard after token expiry.
+     * Inputs: User-facing auth-expiry error message.
+     * Outputs: No return value; resets session state and navigates to dashboard.
+     */
+    clearSignedInState();
     setStatusMessage("");
     setErrorMessage(message);
     router.replace("/");
-  }, [router]);
+  }, [clearSignedInState, router]);
 
   const handleApiError = useCallback((error: unknown, fallbackMessage: string): void => {
     /**
@@ -508,13 +524,47 @@ export default function ChatPage() {
      * Inputs: None.
      * Outputs: No return value; clears auth-related state and navigates to `/`.
      */
-    setAuth(null);
-    setPanels([]);
-    setActivePanelId(null);
-    setPanelConversations([]);
-    setActiveConversation(null);
-    writeStoredAuth(null);
+    clearSignedInState();
     router.replace("/");
+  }
+
+  async function handleDeleteAccount(): Promise<void> {
+    /**
+     * Purpose: Deletes the signed-in account and all owned data after explicit email confirmation.
+     * Inputs: None.
+     * Outputs: No return value; clears chat state and returns to the dashboard when deletion succeeds.
+     */
+    if (!auth) {
+      return;
+    }
+
+    const confirmation = window.prompt(
+      `Type ${auth.account.email} to permanently delete your account, panels, conversations, prompts, and responses.`
+    );
+    if (confirmation === null) {
+      return;
+    }
+
+    setStatusMessage("");
+    setErrorMessage("");
+    setConversationActionsMenu(null);
+    setIsBusy(true);
+    try {
+      await requestJson<DeletedAccount>({
+        path: "/api/account",
+        method: "DELETE",
+        accessToken: auth.accessToken,
+        body: {
+          confirmEmail: confirmation
+        }
+      });
+      clearSignedInState();
+      router.replace("/");
+    } catch (error) {
+      handleApiError(error, "Failed to delete account.");
+    } finally {
+      setIsBusy(false);
+    }
   }
 
   async function handleSelectConversationFromList(conversationId: number): Promise<void> {
@@ -931,9 +981,19 @@ export default function ChatPage() {
                   <p className="signed-in">
                     Signed in as <strong>{auth.account.email}</strong>
                   </p>
-                  <button type="button" onClick={handleLogout} disabled={isBusy}>
-                    Logout
-                  </button>
+                  <div className="chat-account-controls">
+                    <button type="button" onClick={handleLogout} disabled={isBusy}>
+                      Logout
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => void handleDeleteAccount()}
+                      disabled={isBusy}
+                    >
+                      Delete Account
+                    </button>
+                  </div>
                 </div>
               </div>
               {errorMessage ? (
@@ -1282,6 +1342,13 @@ export default function ChatPage() {
           gap: 8px;
           min-width: 0;
           margin-left: auto;
+        }
+
+        .chat-account-controls {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          flex-wrap: wrap;
         }
 
         .sidebar-toggle {
@@ -1687,6 +1754,10 @@ export default function ChatPage() {
           .chat-account {
             width: 100%;
             justify-content: space-between;
+          }
+
+          .chat-account-controls {
+            justify-content: flex-end;
           }
 
           .mobile-only,

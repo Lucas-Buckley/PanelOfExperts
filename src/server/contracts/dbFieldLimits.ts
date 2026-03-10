@@ -8,6 +8,9 @@ export const DB_FIELD_LIMITS = {
     email: 255,
     passwordHash: 255
   },
+  passwordReset: {
+    tokenHash: 64
+  },
   panel: {
     name: 255,
     description: 255
@@ -30,5 +33,6 @@ export const DB_FIELD_LIMITS = {
 
 export const AUTH_LIMITS = {
   passwordMin: 8,
-  passwordMax: 128
+  passwordMax: 128,
+  resetTokenLength: 64
 } as const;

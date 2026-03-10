@@ -3,16 +3,36 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const prismaMock = vi.hoisted(() => ({
   account: {
     findUnique: vi.fn(),
-    create: vi.fn()
-  }
+    create: vi.fn(),
+    delete: vi.fn(),
+    update: vi.fn()
+  },
+  passwordResetToken: {
+    deleteMany: vi.fn(),
+    create: vi.fn(),
+    findUnique: vi.fn(),
+    update: vi.fn()
+  },
+  $transaction: vi.fn()
 }));
 
 const authMock = vi.hoisted(() => ({
-  signToken: vi.fn(() => "mock-access-token")
+  signToken: vi.fn(() => "mock-access-token"),
+  generateOpaqueToken: vi.fn(() => "a".repeat(64))
+}));
+
+const deliveryMock = vi.hoisted(() => ({
+  isPasswordResetEmailDeliveryConfigured: vi.fn(() => false),
+  sendPasswordResetEmail: vi.fn()
 }));
 
 vi.mock("../../src/lib/db", () => ({
   prisma: prismaMock
+}));
+
+vi.mock("../../src/server/services/passwordResetDeliveryService", () => ({
+  isPasswordResetEmailDeliveryConfigured: deliveryMock.isPasswordResetEmailDeliveryConfigured,
+  sendPasswordResetEmail: deliveryMock.sendPasswordResetEmail
 }));
 
 vi.mock("../../src/lib/auth", async () => {
@@ -20,17 +40,42 @@ vi.mock("../../src/lib/auth", async () => {
 
   return {
     ...actual,
-    signToken: authMock.signToken
+    signToken: authMock.signToken,
+    generateOpaqueToken: authMock.generateOpaqueToken
   };
 });
 
-import { hashPassword } from "../../src/lib/auth";
-import { loginAccount, mapAuthErrorToHttp, registerAccount } from "../../src/server/services/authService";
+import { hashOpaqueToken, hashPassword } from "../../src/lib/auth";
+import {
+  deleteAccount,
+  loginAccount,
+  mapAuthErrorToHttp,
+  registerAccount,
+  requestPasswordReset,
+  resetPassword
+} from "../../src/server/services/authService";
 
 beforeEach(() => {
   prismaMock.account.findUnique.mockReset();
   prismaMock.account.create.mockReset();
+  prismaMock.account.delete.mockReset();
+  prismaMock.account.update.mockReset();
+  prismaMock.passwordResetToken.deleteMany.mockReset();
+  prismaMock.passwordResetToken.create.mockReset();
+  prismaMock.passwordResetToken.findUnique.mockReset();
+  prismaMock.passwordResetToken.update.mockReset();
+  prismaMock.$transaction.mockReset();
+  prismaMock.$transaction.mockImplementation(async (callback: (transaction: typeof prismaMock) => unknown) =>
+    callback({
+      account: prismaMock.account,
+      passwordResetToken: prismaMock.passwordResetToken
+    } as typeof prismaMock)
+  );
   authMock.signToken.mockClear();
+  authMock.generateOpaqueToken.mockClear();
+  deliveryMock.isPasswordResetEmailDeliveryConfigured.mockReset();
+  deliveryMock.isPasswordResetEmailDeliveryConfigured.mockReturnValue(false);
+  deliveryMock.sendPasswordResetEmail.mockReset();
 });
 
 describe("auth service", () => {
@@ -125,6 +170,236 @@ describe("auth service", () => {
       accessToken: "mock-access-token",
       tokenType: "Bearer"
     });
+  });
+
+  it("creates a development reset URL when email delivery is not configured outside production", async () => {
+    prismaMock.account.findUnique.mockResolvedValue({
+      id: 9,
+      email: "user@example.com"
+    });
+    prismaMock.passwordResetToken.create.mockResolvedValue({
+      id: 1
+    });
+
+    const result = await requestPasswordReset("https://panel.test", {
+      email: " User@Example.com "
+    });
+
+    expect(prismaMock.passwordResetToken.deleteMany).toHaveBeenCalledWith({
+      where: {
+        accountId: 9
+      }
+    });
+    expect(prismaMock.passwordResetToken.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accountId: 9,
+        tokenHash: hashOpaqueToken("a".repeat(64))
+      })
+    });
+    expect(result).toEqual({
+      accepted: true,
+      developmentResetUrl: "https://panel.test/?resetToken=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    });
+    expect(deliveryMock.sendPasswordResetEmail).not.toHaveBeenCalled();
+  });
+
+  it("does not leak missing accounts during password reset requests", async () => {
+    prismaMock.account.findUnique.mockResolvedValue(null);
+
+    const result = await requestPasswordReset("https://panel.test", {
+      email: "missing@example.com"
+    });
+
+    expect(result).toEqual({
+      accepted: true
+    });
+    expect(prismaMock.passwordResetToken.create).not.toHaveBeenCalled();
+  });
+
+  it("uses email delivery when password reset email settings are configured", async () => {
+    deliveryMock.isPasswordResetEmailDeliveryConfigured.mockReturnValue(true);
+    prismaMock.account.findUnique.mockResolvedValue({
+      id: 9,
+      email: "user@example.com"
+    });
+    prismaMock.passwordResetToken.create.mockResolvedValue({
+      id: 1
+    });
+
+    const result = await requestPasswordReset("https://panel.test", {
+      email: "user@example.com"
+    });
+
+    expect(result).toEqual({
+      accepted: true
+    });
+    expect(deliveryMock.sendPasswordResetEmail).toHaveBeenCalledWith({
+      toEmail: "user@example.com",
+      resetUrl: "https://panel.test/?resetToken=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      expiresInMinutes: 30
+    });
+  });
+
+  it("rejects password reset requests in production when secure delivery is not configured", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    try {
+      await expect(
+        requestPasswordReset("https://panel.test", {
+          email: "user@example.com"
+        })
+      ).rejects.toMatchObject({
+        status: 503
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("resets password for a valid token and invalidates other tokens", async () => {
+    prismaMock.passwordResetToken.findUnique.mockResolvedValue({
+      id: 17,
+      accountId: 9,
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: null,
+      account: {
+        id: 9,
+        email: "user@example.com"
+      }
+    });
+
+    const result = await resetPassword({
+      token: "a".repeat(64),
+      password: "EvenStrongerPassword123",
+      confirmPassword: "EvenStrongerPassword123"
+    });
+
+    expect(prismaMock.passwordResetToken.findUnique).toHaveBeenCalledWith({
+      where: {
+        tokenHash: hashOpaqueToken("a".repeat(64))
+      },
+      select: {
+        id: true,
+        accountId: true,
+        expiresAt: true,
+        usedAt: true,
+        account: {
+          select: {
+            id: true,
+            email: true
+          }
+        }
+      }
+    });
+    expect(prismaMock.account.update).toHaveBeenCalledTimes(1);
+    const updateArgs = prismaMock.account.update.mock.calls[0][0] as {
+      data: { passwordHash: string };
+    };
+    expect(updateArgs.data.passwordHash).not.toBe("EvenStrongerPassword123");
+    expect(updateArgs.data.passwordHash.startsWith("$2")).toBe(true);
+    expect(prismaMock.passwordResetToken.update).toHaveBeenCalledWith({
+      where: {
+        id: 17
+      },
+      data: {
+        usedAt: expect.any(Date)
+      }
+    });
+    expect(prismaMock.passwordResetToken.deleteMany).toHaveBeenCalledWith({
+      where: {
+        accountId: 9,
+        id: {
+          not: 17
+        }
+      }
+    });
+    expect(result).toEqual({
+      account: {
+        id: 9,
+        email: "user@example.com"
+      }
+    });
+  });
+
+  it("rejects invalid or expired reset tokens", async () => {
+    prismaMock.passwordResetToken.findUnique.mockResolvedValue(null);
+
+    await expect(
+      resetPassword({
+        token: "a".repeat(64),
+        password: "EvenStrongerPassword123",
+        confirmPassword: "EvenStrongerPassword123"
+      })
+    ).rejects.toMatchObject({
+      status: 400
+    });
+
+    expect(prismaMock.account.update).not.toHaveBeenCalled();
+  });
+
+  it("deletes account when confirmation email matches the signed-in account", async () => {
+    prismaMock.account.findUnique.mockResolvedValue({
+      id: 9,
+      email: "user@example.com"
+    });
+    prismaMock.account.delete.mockResolvedValue({
+      id: 9,
+      email: "user@example.com"
+    });
+
+    const result = await deleteAccount(9, {
+      confirmEmail: " User@Example.com "
+    });
+
+    expect(prismaMock.account.findUnique).toHaveBeenCalledWith({
+      where: { id: 9 },
+      select: {
+        id: true,
+        email: true
+      }
+    });
+    expect(prismaMock.account.delete).toHaveBeenCalledWith({
+      where: { id: 9 },
+      select: {
+        id: true,
+        email: true
+      }
+    });
+    expect(result).toEqual({
+      id: 9,
+      email: "user@example.com"
+    });
+  });
+
+  it("rejects account deletion when confirmation email does not match", async () => {
+    prismaMock.account.findUnique.mockResolvedValue({
+      id: 9,
+      email: "user@example.com"
+    });
+
+    await expect(
+      deleteAccount(9, {
+        confirmEmail: "other@example.com"
+      })
+    ).rejects.toMatchObject({
+      status: 400
+    });
+
+    expect(prismaMock.account.delete).not.toHaveBeenCalled();
+  });
+
+  it("rejects account deletion when the account no longer exists", async () => {
+    prismaMock.account.findUnique.mockResolvedValue(null);
+
+    await expect(
+      deleteAccount(9, {
+        confirmEmail: "user@example.com"
+      })
+    ).rejects.toMatchObject({
+      status: 404
+    });
+
+    expect(prismaMock.account.delete).not.toHaveBeenCalled();
   });
 
   it("maps unknown errors to 500", () => {

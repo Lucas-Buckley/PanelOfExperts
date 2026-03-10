@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Purpose: Renders the dashboard UI for authentication and panel management workflows.
+ * Purpose: Renders the dashboard UI for authentication, password reset, account deletion, and panel management workflows.
  * Inputs: None.
- * Outputs: Interactive client page for account auth, panel create/select/edit/delete, and chat-page navigation.
+ * Outputs: Interactive client page for account auth, password reset, account deletion, panel create/select/edit/delete, and chat-page navigation.
  */
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -17,6 +17,20 @@ type AuthSuccess = {
   account: AccountIdentity;
   accessToken: string;
   tokenType: "Bearer";
+};
+
+type PasswordResetRequestResponse = {
+  accepted: true;
+  developmentResetUrl?: string;
+};
+
+type PasswordResetResponse = {
+  account: AccountIdentity;
+};
+
+type DeletedAccount = {
+  id: number;
+  email: string;
 };
 
 type PanelExpertView = {
@@ -52,6 +66,34 @@ type ExpertDraft = {
 const AUTH_STORAGE_KEY = "poe-auth";
 const INVALID_ACCESS_TOKEN_MESSAGE = "Invalid or expired access token.";
 let expertDraftCounter = 0;
+
+function readResetTokenFromLocation(): string {
+  /**
+   * Purpose: Reads an optional password-reset token from the current browser URL.
+   * Inputs: Browser `window.location.search`.
+   * Outputs: Trimmed reset token string or empty string when absent.
+   */
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return new URLSearchParams(window.location.search).get("resetToken")?.trim() ?? "";
+}
+
+function clearResetTokenFromLocation(): void {
+  /**
+   * Purpose: Removes the password-reset token query parameter from the browser URL without reloading.
+   * Inputs: Current browser URL.
+   * Outputs: No return value; mutates browser history state.
+   */
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete("resetToken");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
 
 function createExpertDraft(): ExpertDraft {
   /**
@@ -167,7 +209,7 @@ function writeStoredAuth(auth: AuthSuccess | null): void {
 
 export default function HomePage() {
   /**
-   * Purpose: Hosts dashboard controls: auth and panel create/select/edit/delete management.
+   * Purpose: Hosts dashboard controls: auth, password reset, account deletion, and panel create/select/edit/delete management.
    * Inputs: None.
    * Outputs: Home page JSX with form handlers wired to account/panel API routes.
    */
@@ -175,6 +217,12 @@ export default function HomePage() {
   const [auth, setAuth] = useState<AuthSuccess | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
+  const [isPasswordResetOpen, setIsPasswordResetOpen] = useState(false);
+  const [developmentResetUrl, setDevelopmentResetUrl] = useState("");
 
   const [panels, setPanels] = useState<PanelView[]>([]);
   const [activePanel, setActivePanel] = useState<PanelView | null>(null);
@@ -192,11 +240,11 @@ export default function HomePage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
 
-  const clearSessionForExpiredToken = useCallback((message: string): void => {
+  const clearSignedInState = useCallback((status: string, error: string): void => {
     /**
-     * Purpose: Clears all authenticated client state and returns UI to login mode after token expiry.
-     * Inputs: User-facing auth-expiry error message.
-     * Outputs: No return value; resets session state and persists signed-out storage state.
+     * Purpose: Clears all signed-in dashboard state and optionally leaves a UI message behind.
+     * Inputs: Next status message and next error message.
+     * Outputs: No return value; resets session/panel/editor state.
      */
     setAuth(null);
     setPanels([]);
@@ -204,9 +252,18 @@ export default function HomePage() {
     setIsCreatePanelOpen(false);
     resetCreatePanelForm();
     writeStoredAuth(null);
-    setStatusMessage("");
-    setErrorMessage(message);
+    setStatusMessage(status);
+    setErrorMessage(error);
   }, []);
+
+  const clearSessionForExpiredToken = useCallback((message: string): void => {
+    /**
+     * Purpose: Clears all authenticated client state and returns UI to login mode after token expiry.
+     * Inputs: User-facing auth-expiry error message.
+     * Outputs: No return value; resets session state and persists signed-out storage state.
+     */
+    clearSignedInState("", message);
+  }, [clearSignedInState]);
 
   const handleApiError = useCallback((error: unknown, fallbackMessage: string): void => {
     /**
@@ -256,6 +313,27 @@ export default function HomePage() {
 
   useEffect(() => {
     /**
+     * Purpose: Auto-opens the reset-password UI when a reset token is present in the URL.
+     * Inputs: Auth state and current browser query string.
+     * Outputs: No return value; seeds reset-token state for login-screen recovery flows.
+     */
+    if (auth || readStoredAuth()) {
+      return;
+    }
+
+    const token = readResetTokenFromLocation();
+    if (!token) {
+      return;
+    }
+
+    setResetToken(token);
+    setIsPasswordResetOpen(true);
+    setStatusMessage("Reset link loaded. Enter your new password.");
+    setErrorMessage("");
+  }, [auth]);
+
+  useEffect(() => {
+    /**
      * Purpose: Keeps edit-panel form fields synchronized with the currently selected panel.
      * Inputs: Active panel value from selection/create/update flows.
      * Outputs: No return value; updates edit-panel field state.
@@ -302,6 +380,20 @@ export default function HomePage() {
     setErrorMessage("");
   }
 
+  function resetPasswordResetForm(): void {
+    /**
+     * Purpose: Clears password-reset request/confirmation drafts and removes any dev/reset-link residue.
+     * Inputs: None.
+     * Outputs: No return value; resets password-reset UI state.
+     */
+    setForgotPasswordEmail("");
+    setResetToken("");
+    setResetPasswordValue("");
+    setResetPasswordConfirm("");
+    setDevelopmentResetUrl("");
+    clearResetTokenFromLocation();
+  }
+
   async function submitAuth(mode: "register" | "login"): Promise<void> {
     /**
      * Purpose: Submits register/login requests and persists auth session for subsequent API calls.
@@ -328,6 +420,8 @@ export default function HomePage() {
       setActivePanel(null);
       setIsCreatePanelOpen(false);
       resetCreatePanelForm();
+      resetPasswordResetForm();
+      setIsPasswordResetOpen(false);
       setStatusMessage(mode === "register" ? "Account created and signed in." : "Signed in.");
       setPassword("");
     } catch (error) {
@@ -353,14 +447,127 @@ export default function HomePage() {
      * Inputs: None.
      * Outputs: No return value; clears auth-related state.
      */
-    setAuth(null);
-    setPanels([]);
-    setActivePanel(null);
-    setIsCreatePanelOpen(false);
-    resetCreatePanelForm();
-    writeStoredAuth(null);
-    setStatusMessage("Signed out.");
+    clearSignedInState("Signed out.", "");
+  }
+
+  async function handleRequestPasswordReset(event: FormEvent<HTMLFormElement>): Promise<void> {
+    /**
+     * Purpose: Requests a one-time password-reset link for the supplied email address.
+     * Inputs: Submitted forgot-password form event.
+     * Outputs: No return value; updates reset-help state and status messaging.
+     */
+    event.preventDefault();
+    setStatusMessage("");
     setErrorMessage("");
+    setDevelopmentResetUrl("");
+    setIsBusy(true);
+
+    try {
+      const result = await requestJson<PasswordResetRequestResponse>({
+        path: "/api/auth/forgot-password",
+        method: "POST",
+        body: {
+          email: forgotPasswordEmail
+        }
+      });
+
+      if (result.developmentResetUrl) {
+        const token = new URL(result.developmentResetUrl).searchParams.get("resetToken") ?? "";
+        setDevelopmentResetUrl(result.developmentResetUrl);
+        setResetToken(token);
+      }
+
+      setIsPasswordResetOpen(true);
+      setStatusMessage(
+        result.developmentResetUrl
+          ? "Password reset link generated for local testing."
+          : "If an account exists for that email, a password reset link has been sent."
+      );
+    } catch (error) {
+      handleApiError(error, "Failed to request password reset.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleResetPassword(event: FormEvent<HTMLFormElement>): Promise<void> {
+    /**
+     * Purpose: Applies a new password from a one-time reset token and prepares the user to log in again.
+     * Inputs: Submitted reset-password form event.
+     * Outputs: No return value; updates login/reset state on success.
+     */
+    event.preventDefault();
+
+    if (resetPasswordValue !== resetPasswordConfirm) {
+      setStatusMessage("");
+      setErrorMessage("Passwords do not match.");
+      return;
+    }
+
+    setStatusMessage("");
+    setErrorMessage("");
+    setIsBusy(true);
+
+    try {
+      const result = await requestJson<PasswordResetResponse>({
+        path: "/api/auth/reset-password",
+        method: "POST",
+        body: {
+          token: resetToken,
+          password: resetPasswordValue,
+          confirmPassword: resetPasswordConfirm
+        }
+      });
+
+      setEmail(result.account.email);
+      setPassword("");
+      resetPasswordResetForm();
+      setIsPasswordResetOpen(false);
+      setStatusMessage("Password reset. You can log in with your new password.");
+    } catch (error) {
+      handleApiError(error, "Failed to reset password.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleDeleteAccount(): Promise<void> {
+    /**
+     * Purpose: Deletes the signed-in account and all owned data after explicit email confirmation.
+     * Inputs: None.
+     * Outputs: No return value; clears signed-in state when deletion succeeds.
+     */
+    if (!auth) {
+      return;
+    }
+
+    const confirmation = window.prompt(
+      `Type ${auth.account.email} to permanently delete your account, panels, conversations, prompts, and responses.`
+    );
+    if (confirmation === null) {
+      return;
+    }
+
+    setStatusMessage("");
+    setErrorMessage("");
+    setIsBusy(true);
+    try {
+      await requestJson<DeletedAccount>({
+        path: "/api/account",
+        method: "DELETE",
+        accessToken: auth.accessToken,
+        body: {
+          confirmEmail: confirmation
+        }
+      });
+      setEmail("");
+      setPassword("");
+      clearSignedInState("Account deleted.", "");
+    } catch (error) {
+      handleApiError(error, "Failed to delete account.");
+    } finally {
+      setIsBusy(false);
+    }
   }
 
   async function handleSelectPanel(panelId: number): Promise<void> {
@@ -607,9 +814,19 @@ export default function HomePage() {
             <p>
               Signed in as <strong>{auth.account.email}</strong>
             </p>
-            <button type="button" onClick={handleLogout} disabled={isBusy}>
-              Logout
-            </button>
+            <div className="auth-summary-actions">
+              <button type="button" onClick={handleLogout} disabled={isBusy}>
+                Logout
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => void handleDeleteAccount()}
+                disabled={isBusy}
+              >
+                Delete Account
+              </button>
+            </div>
           </div>
         ) : null}
         <div className="hero-copy">
@@ -661,6 +878,108 @@ export default function HomePage() {
               </button>
             </div>
           </form>
+          <div className="password-reset-toggle-row">
+            <button
+              type="button"
+              className="button-link secondary-button"
+              onClick={() => {
+                setIsPasswordResetOpen((current) => !current);
+                setForgotPasswordEmail((current) => current || email);
+                setStatusMessage("");
+                setErrorMessage("");
+              }}
+              disabled={isBusy}
+            >
+              {isPasswordResetOpen ? "Hide Password Reset" : "Forgot Password?"}
+            </button>
+          </div>
+          {isPasswordResetOpen ? (
+            <div className="password-reset-shell">
+              <form className="password-reset-form" onSubmit={(event) => void handleRequestPasswordReset(event)}>
+                <div className="section-copy compact-copy">
+                  <h3>Request Reset Link</h3>
+                  <p>Enter your account email to request a one-time password reset link.</p>
+                </div>
+                <label>
+                  Account Email
+                  <input
+                    value={forgotPasswordEmail}
+                    onChange={(event) => setForgotPasswordEmail(event.target.value)}
+                    type="email"
+                    autoComplete="email"
+                    required
+                  />
+                </label>
+                <button type="submit" disabled={isBusy}>
+                  Send Reset Link
+                </button>
+                {developmentResetUrl ? (
+                  <div className="password-reset-dev-note">
+                    <p>Local development reset link:</p>
+                    <code>{developmentResetUrl}</code>
+                  </div>
+                ) : null}
+              </form>
+
+              <form className="password-reset-form" onSubmit={(event) => void handleResetPassword(event)}>
+                <div className="section-copy compact-copy">
+                  <h3>Reset Password</h3>
+                  <p>Paste the reset token from your email link, then choose a new password.</p>
+                </div>
+                <label>
+                  Reset Token
+                  <input
+                    value={resetToken}
+                    onChange={(event) => setResetToken(event.target.value)}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    required
+                  />
+                </label>
+                <label>
+                  New Password
+                  <input
+                    value={resetPasswordValue}
+                    onChange={(event) => setResetPasswordValue(event.target.value)}
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </label>
+                <label>
+                  Confirm New Password
+                  <input
+                    value={resetPasswordConfirm}
+                    onChange={(event) => setResetPasswordConfirm(event.target.value)}
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </label>
+                <div className="auth-actions">
+                  <button type="submit" disabled={isBusy}>
+                    Reset Password
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      resetPasswordResetForm();
+                      setIsPasswordResetOpen(false);
+                      setStatusMessage("");
+                      setErrorMessage("");
+                    }}
+                    disabled={isBusy}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -1034,6 +1353,13 @@ export default function HomePage() {
           text-align: right;
         }
 
+        .auth-summary-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
         .card {
           background: var(--card-bg);
           border: 1px solid var(--card-border);
@@ -1054,6 +1380,39 @@ export default function HomePage() {
           display: grid;
           gap: 10px;
           grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+
+        .password-reset-toggle-row {
+          display: flex;
+          justify-content: center;
+        }
+
+        .password-reset-shell {
+          display: grid;
+          gap: 12px;
+        }
+
+        .password-reset-form {
+          width: min(100%, 640px);
+          justify-self: center;
+        }
+
+        .password-reset-dev-note {
+          display: grid;
+          gap: 6px;
+          padding: 10px;
+          border: 1px solid var(--form-border);
+          border-radius: 12px;
+          background: color-mix(in srgb, var(--button-bg) 55%, transparent);
+        }
+
+        .password-reset-dev-note p {
+          margin: 0;
+        }
+
+        .password-reset-dev-note code {
+          overflow-wrap: anywhere;
+          font-size: 0.82rem;
         }
 
         .auth-card,
@@ -1262,6 +1621,10 @@ export default function HomePage() {
           transition: transform 120ms ease, background-color 120ms ease;
         }
 
+        .secondary-button {
+          background: transparent;
+        }
+
         button:hover,
         .button-link:hover {
           transform: translateY(-1px);
@@ -1339,6 +1702,10 @@ export default function HomePage() {
 
           .auth-summary p {
             text-align: center;
+          }
+
+          .auth-summary-actions {
+            justify-content: center;
           }
 
           .panel-card-controls button {

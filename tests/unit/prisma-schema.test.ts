@@ -16,7 +16,8 @@ describe("prisma schema", () => {
       "Prompt",
       "Response",
       "LlmUsageDaily",
-      "IdempotencyRequest"
+      "IdempotencyRequest",
+      "PasswordResetToken"
     ]) {
       expect(schema).toContain(`model ${model} {`);
     }
@@ -53,7 +54,8 @@ describe("prisma schema", () => {
       "prompt",
       "response",
       "llm_usage_daily",
-      "idempotency_request"
+      "idempotency_request",
+      "password_reset_token"
     ]) {
       expect(schema).toContain(`@@map("${table}")`);
     }
@@ -97,5 +99,13 @@ describe("prisma schema", () => {
     expect(schema).toContain('usageDate  DateTime @map("usage_date") @db.Date');
     expect(schema).toContain('usedTokens Int      @default(0) @map("used_tokens")');
     expect(schema).toContain("@@id([usageDate, model])");
+  });
+
+  it("stores hashed password reset tokens with expiry and cascade ownership", () => {
+    expect(schema).toContain('tokenHash String   @map("token_hash") @db.VarChar(64)');
+    expect(schema).toContain('expiresAt DateTime @map("expires_at")');
+    expect(schema).toContain('usedAt    DateTime? @map("used_at")');
+    expect(schema).toContain('passwordResetTokens PasswordResetToken[]');
+    expect(schema).toContain('@@map("password_reset_token")');
   });
 });

@@ -1,11 +1,12 @@
 /**
  * Purpose: Provides auth-related utility functions for email normalization,
- * password hashing/verification, and JWT signing.
+ * password hashing/verification, opaque reset-token generation/hashing, and JWT signing.
  * Inputs: Raw email/password/token payload values.
- * Outputs: Normalized emails, hashed passwords, boolean verify result, signed JWT.
+ * Outputs: Normalized emails, hashed passwords, opaque reset tokens/hashes, boolean verify result, signed JWT.
  */
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { createHash, randomBytes } from "node:crypto";
 import { appConfig } from "../config/appConfig";
 
 export function normalizeEmail(email: string): string {
@@ -33,6 +34,24 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
    * Outputs: Boolean match result.
    */
   return bcrypt.compare(password, hash);
+}
+
+export function generateOpaqueToken(byteLength: number = 32): string {
+  /**
+   * Purpose: Generates a cryptographically random opaque token for one-time flows like password reset.
+   * Inputs: Optional raw byte length.
+   * Outputs: Hex-encoded random token string.
+   */
+  return randomBytes(byteLength).toString("hex");
+}
+
+export function hashOpaqueToken(token: string): string {
+  /**
+   * Purpose: Hashes opaque tokens before persistence so raw reset tokens are never stored in the database.
+   * Inputs: Raw opaque token string.
+   * Outputs: SHA-256 hex digest string.
+   */
+  return createHash("sha256").update(token).digest("hex");
 }
 
 export function signToken(payload: object, secret: string = appConfig.jwtSecret): string {

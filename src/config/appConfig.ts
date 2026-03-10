@@ -36,6 +36,7 @@ type FileConfig = {
   };
   auth: {
     accessTokenTtl: string;
+    passwordResetTokenTtlMinutes?: number;
   };
   api?: {
     idempotencyReplayTtlHours?: number;
@@ -160,6 +161,12 @@ export const appConfig = {
   databaseUrl: process.env.DATABASE_URL ?? "",
   jwtSecret: process.env.JWT_SECRET ?? "",
   authAccessTokenTtl: fileConfig.auth.accessTokenTtl,
+  passwordResetTokenTtlMinutes: Math.max(
+    5,
+    Math.floor(parseNumber(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES, fileConfig.auth.passwordResetTokenTtlMinutes ?? 30))
+  ),
+  resendApiKey: process.env.RESEND_API_KEY ?? "",
+  passwordResetFromEmail: process.env.PASSWORD_RESET_FROM_EMAIL ?? "",
   llmEnabled: parseBoolean(process.env.LLM_ENABLED, fileConfig.llm.defaultEnabled),
   llmMode: parseLlmMode(process.env.LLM_MODE, fileConfig.llm.defaultMode),
   openAiApiKey: process.env.OPENAI_API_KEY ?? "",
