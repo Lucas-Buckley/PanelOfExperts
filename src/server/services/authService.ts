@@ -34,7 +34,8 @@ const loginSchema = z.object({
 });
 
 const deleteAccountSchema = z.object({
-  confirmEmail: z.string().trim().email().max(DB_FIELD_LIMITS.account.email)
+  confirmEmail: z.string().trim().email().max(DB_FIELD_LIMITS.account.email),
+  currentPassword: z.string().min(1).max(AUTH_LIMITS.passwordMax)
 });
 
 const passwordResetRequestSchema = z.object({
@@ -321,7 +322,8 @@ export async function deleteAccount(accountId: number, input: unknown): Promise<
     where: { id: accountId },
     select: {
       id: true,
-      email: true
+      email: true,
+      passwordHash: true
     }
   });
 
@@ -335,6 +337,11 @@ export async function deleteAccount(accountId: number, input: unknown): Promise<
       400,
       "Confirmation email does not match the signed-in account."
     );
+  }
+
+  const validPassword = await verifyPassword(parsed.currentPassword, account.passwordHash);
+  if (!validPassword) {
+    throw new AuthServiceError("INVALID_CREDENTIALS", 401, "Current password is incorrect.");
   }
 
   const deletedAccount = await prisma.account.delete({
