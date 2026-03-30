@@ -1,872 +1,613 @@
 "use client";
-
-/**
- * Purpose: Renders the dedicated chat workspace UI for panel conversations and prompt/response flow.
- * Inputs: Optional `panelId` query param, persisted auth session, and user interactions.
- * Outputs: Interactive chat page for conversation selection, prompt submission, and expert response history.
- */
 import { FormEvent, KeyboardEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-
 import { formatTimestamp, sortConversation } from "../pageHelpers";
-
 type AccountIdentity = {
-  id: number;
-  email: string;
-};
-
-type AuthSuccess = {
-  account: AccountIdentity;
-  accessToken: string;
-  tokenType: "Bearer";
-};
-
-type DeletedAccount = {
-  id: number;
-  email: string;
-};
-
-type PanelExpertView = {
-  id: number;
-  name: string;
-  specialization: string;
-  soul: string;
-  position: number;
-};
-
-type PanelView = {
-  id: number;
-  accountId: number;
-  name: string;
-  description: string | null;
-  instructions: string | null;
-  lastPromptedAt: string | null;
-  experts: PanelExpertView[];
-};
-
-type ConversationResponseView = {
-  id: number;
-  promptId: number;
-  expertId: number;
-  sequence: number;
-  content: string;
-  createdAt: string;
-};
-
-type ConversationPromptView = {
-  id: number;
-  conversationId: number;
-  sequence: number;
-  content: string;
-  createdAt: string;
-  responses: ConversationResponseView[];
-};
-
-type ConversationView = {
-  id: number;
-  panelId: number;
-  name: string;
-  lastPromptedAt: string | null;
-  prompts: ConversationPromptView[];
-};
-
-type ConversationListItemView = {
-  id: number;
-  panelId: number;
-  name: string;
-  lastPromptedAt: string | null;
-};
-
-type ConversationActionsMenuState = {
-  conversation: ConversationListItemView;
-  top: number;
-  left: number;
-};
-
-type PromptCreateResponse = {
-  prompt: {
     id: number;
-    conversationId: number;
-    sequence: number;
-    content: string;
-    createdAt: string;
-  };
-  responses: Array<{
+    email: string;
+};
+type AuthSuccess = {
+    account: AccountIdentity;
+    accessToken: string;
+    tokenType: "Bearer";
+};
+type DeletedAccount = {
+    id: number;
+    email: string;
+};
+type PanelExpertView = {
+    id: number;
+    name: string;
+    specialization: string;
+    soul: string;
+    position: number;
+};
+type PanelView = {
+    id: number;
+    accountId: number;
+    name: string;
+    description: string | null;
+    instructions: string | null;
+    lastPromptedAt: string | null;
+    experts: PanelExpertView[];
+};
+type ConversationResponseView = {
     id: number;
     promptId: number;
     expertId: number;
     sequence: number;
     content: string;
     createdAt: string;
-  }>;
 };
-
+type ConversationPromptView = {
+    id: number;
+    conversationId: number;
+    sequence: number;
+    content: string;
+    createdAt: string;
+    responses: ConversationResponseView[];
+};
+type ConversationView = {
+    id: number;
+    panelId: number;
+    name: string;
+    lastPromptedAt: string | null;
+    prompts: ConversationPromptView[];
+};
+type ConversationListItemView = {
+    id: number;
+    panelId: number;
+    name: string;
+    lastPromptedAt: string | null;
+};
+type ConversationActionsMenuState = {
+    conversation: ConversationListItemView;
+    top: number;
+    left: number;
+};
+type PromptCreateResponse = {
+    prompt: {
+        id: number;
+        conversationId: number;
+        sequence: number;
+        content: string;
+        createdAt: string;
+    };
+    responses: Array<{
+        id: number;
+        promptId: number;
+        expertId: number;
+        sequence: number;
+        content: string;
+        createdAt: string;
+    }>;
+};
 type ConversationTitleResponse = {
-  title: string;
+    title: string;
 };
-
 type ApiErrorShape = {
-  error?: string;
+    error?: string;
 };
-
 const AUTH_STORAGE_KEY = "poe-auth";
 const INVALID_ACCESS_TOKEN_MESSAGE = "Invalid or expired access token.";
 const AUTO_CONVERSATION_NAME_MAX_LENGTH = 255;
-
 function parsePositiveInteger(rawValue: string | null): number | null {
-  /**
-   * Purpose: Parses and validates positive integer query-string values.
-   * Inputs: Raw string value from query param.
-   * Outputs: Parsed positive integer or null when invalid/missing.
-   */
-  if (!rawValue) {
-    return null;
-  }
-
-  const parsed = Number(rawValue);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    return null;
-  }
-
-  return parsed;
-}
-
-function readRequestedPanelIdFromLocation(): number | null {
-  /**
-   * Purpose: Reads optional `panelId` query value from current browser location.
-   * Inputs: Browser `window.location.search` state.
-   * Outputs: Parsed positive panel id or null when missing/invalid.
-   */
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const query = new URLSearchParams(window.location.search);
-  return parsePositiveInteger(query.get("panelId"));
-}
-
-function buildFallbackConversationName(promptContent: string): string {
-  /**
-   * Purpose: Derives fallback conversation name from first prompt when title generation is unavailable.
-   * Inputs: Raw prompt text submitted by the user.
-   * Outputs: Normalized conversation name capped to DB-safe length.
-   */
-  const normalized = promptContent.replace(/\s+/g, " ").trim();
-  if (normalized.length === 0) {
-    return "New conversation";
-  }
-
-  return normalized.slice(0, AUTO_CONVERSATION_NAME_MAX_LENGTH);
-}
-
-async function requestJson<T>(args: {
-  path: string;
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
-  accessToken?: string;
-  headers?: Record<string, string>;
-  body?: unknown;
-}): Promise<T> {
-  /**
-   * Purpose: Sends JSON requests to internal API routes with optional bearer auth and typed response parsing.
-   * Inputs: Route path, HTTP method, optional access token, and optional JSON body.
-   * Outputs: Parsed success payload or thrown error message from failed responses.
-   */
-  const headers: Record<string, string> = { ...(args.headers ?? {}) };
-  if (args.body !== undefined) {
-    headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
-  }
-  if (args.accessToken) {
-    headers.Authorization = `Bearer ${args.accessToken}`;
-  }
-
-  const response = await fetch(args.path, {
-    method: args.method ?? "GET",
-    headers,
-    body: args.body !== undefined ? JSON.stringify(args.body) : undefined
-  });
-  const payload = (await response.json().catch(() => ({}))) as T | ApiErrorShape;
-
-  if (!response.ok) {
-    const message =
-      typeof payload === "object" &&
-      payload !== null &&
-      "error" in payload &&
-      typeof payload.error === "string"
-        ? payload.error
-        : `Request failed (${response.status}).`;
-    throw new Error(message);
-  }
-
-  return payload as T;
-}
-
-function createClientOperationId(): string {
-  /**
-   * Purpose: Generates per-submit operation ids used for server idempotency keys.
-   * Inputs: None.
-   * Outputs: UUID when available, otherwise timestamp/random fallback string.
-   */
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function readStoredAuth(): AuthSuccess | null {
-  /**
-   * Purpose: Reads persisted auth payload from localStorage for automatic client-side session resume.
-   * Inputs: None.
-   * Outputs: Parsed auth payload or null when missing/invalid.
-   */
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(raw) as AuthSuccess;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredAuth(auth: AuthSuccess | null): void {
-  /**
-   * Purpose: Persists or clears auth payload in localStorage.
-   * Inputs: Auth payload or null to clear.
-   * Outputs: No return value; localStorage side effect.
-   */
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  if (!auth) {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    return;
-  }
-
-  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(auth));
-}
-
-export default function ChatPage() {
-  /**
-   * Purpose: Hosts chat workspace controls: panel-scoped conversation list and prompt/response thread.
-   * Inputs: None.
-   * Outputs: Chat workspace page JSX with form handlers wired to conversation/prompt API routes.
-   */
-  const router = useRouter();
-
-  const [auth, setAuth] = useState<AuthSuccess | null>(null);
-  const [panels, setPanels] = useState<PanelView[]>([]);
-  const [activePanelId, setActivePanelId] = useState<number | null>(null);
-  const [panelConversations, setPanelConversations] = useState<ConversationListItemView[]>([]);
-  const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
-  const [conversationActionsMenu, setConversationActionsMenu] =
-    useState<ConversationActionsMenuState | null>(null);
-  const [promptInput, setPromptInput] = useState("");
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-
-  const [statusMessage, setStatusMessage] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
-  const [isBusy, setIsBusy] = useState(false);
-  const promptSubmitLockRef = useRef(false);
-
-  const activePanel = useMemo(() => {
-    /**
-     * Purpose: Resolves active panel record from loaded panel list and selected id.
-     * Inputs: Loaded panels and selected panel id state.
-     * Outputs: Active panel object or null.
-     */
-    if (activePanelId === null) {
-      return null;
-    }
-
-    return panels.find((panel) => panel.id === activePanelId) ?? null;
-  }, [panels, activePanelId]);
-
-  const expertNameById = useMemo(() => {
-    /**
-     * Purpose: Builds expert lookup map for rendering response rows under expert names.
-     * Inputs: Active panel expert list.
-     * Outputs: Expert id -> expert name map.
-     */
-    return new Map((activePanel?.experts ?? []).map((expert) => [expert.id, expert.name]));
-  }, [activePanel]);
-
-  useEffect(() => {
-    /**
-     * Purpose: Ensures any open row actions menu closes when panel context changes.
-     * Inputs: Active panel id state.
-     * Outputs: No return value; resets open-menu state.
-     */
-    setConversationActionsMenu(null);
-  }, [activePanelId]);
-
-  const clearSignedInState = useCallback((): void => {
-    /**
-     * Purpose: Clears all signed-in chat workspace state and persisted auth storage.
-     * Inputs: None.
-     * Outputs: No return value; resets auth, panel, conversation, and prompt-draft state.
-     */
-    setAuth(null);
-    setPanels([]);
-    setActivePanelId(null);
-    setPanelConversations([]);
-    setActiveConversation(null);
-    setPromptInput("");
-    setConversationActionsMenu(null);
-    writeStoredAuth(null);
-  }, []);
-
-  const clearSessionForExpiredToken = useCallback((message: string): void => {
-    /**
-     * Purpose: Clears all authenticated client state and redirects to login dashboard after token expiry.
-     * Inputs: User-facing auth-expiry error message.
-     * Outputs: No return value; resets session state and navigates to dashboard.
-     */
-    clearSignedInState();
-    setStatusMessage("");
-    setErrorMessage(message);
-    router.replace("/");
-  }, [clearSignedInState, router]);
-
-  const handleApiError = useCallback((error: unknown, fallbackMessage: string): void => {
-    /**
-     * Purpose: Normalizes request errors and enforces token-expiry redirect behavior.
-     * Inputs: Unknown thrown error and fallback message.
-     * Outputs: No return value; updates error/session state.
-     */
-    const message = error instanceof Error ? error.message : fallbackMessage;
-    if (message === INVALID_ACCESS_TOKEN_MESSAGE) {
-      clearSessionForExpiredToken(message);
-      return;
-    }
-
-    setErrorMessage(message);
-  }, [clearSessionForExpiredToken]);
-
-  async function loadPanels(accessToken: string): Promise<PanelView[]> {
-    /**
-     * Purpose: Loads account-owned panel list from API and updates local state.
-     * Inputs: Bearer access token.
-     * Outputs: Loaded panel list payload.
-     */
-    const listedPanels = await requestJson<PanelView[]>({
-      path: "/api/panels",
-      method: "GET",
-      accessToken
-    });
-    setPanels(listedPanels);
-    return listedPanels;
-  }
-
-  async function loadPanelConversations(accessToken: string, panelId: number): Promise<void> {
-    /**
-     * Purpose: Loads conversations for one panel so users can browse and open existing threads.
-     * Inputs: Bearer access token and panel id.
-     * Outputs: No return value; updates conversation list state for the active panel.
-     */
-    const listedConversations = await requestJson<ConversationListItemView[]>({
-      path: `/api/conversations?panelId=${panelId}`,
-      method: "GET",
-      accessToken
-    });
-    setPanelConversations(listedConversations);
-  }
-
-  async function openConversationById(
-    accessToken: string,
-    conversationId: number
-  ): Promise<ConversationView> {
-    /**
-     * Purpose: Loads a conversation by id and stores it as the active thread view.
-     * Inputs: Bearer access token and target conversation id.
-     * Outputs: Loaded and sorted conversation payload.
-     */
-    const conversation = await requestJson<ConversationView>({
-      path: `/api/conversations/${conversationId}`,
-      method: "GET",
-      accessToken
-    });
-    const sortedConversation = sortConversation(conversation);
-    setActiveConversation(sortedConversation);
-    return sortedConversation;
-  }
-
-  async function generateConversationTitle(
-    accessToken: string,
-    prompt: string,
-    idempotencyKey: string
-  ): Promise<string> {
-    /**
-     * Purpose: Requests backend-generated short title for first prompt using server-side LLM access.
-     * Inputs: Bearer access token and first prompt content.
-     * Outputs: Generated conversation title text.
-     */
-    const response = await requestJson<ConversationTitleResponse>({
-      path: "/api/conversations/title",
-      method: "POST",
-      accessToken,
-      headers: {
-        "Idempotency-Key": idempotencyKey
-      },
-      body: { prompt }
-    });
-
-    return response.title;
-  }
-
-  useEffect(() => {
-    /**
-     * Purpose: Restores persisted auth, loads panel list, and initializes selected panel from query/default.
-     * Inputs: Stored auth payload and optional `panelId` query param.
-     * Outputs: No return value; hydrates chat workspace state.
-     */
-    const stored = readStoredAuth();
-    if (!stored) {
-      router.replace("/");
-      return;
-    }
-
-    setAuth(stored);
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const listedPanels = await loadPanels(stored.accessToken);
-        if (cancelled) {
-          return;
-        }
-
-        const requestedPanelId = readRequestedPanelIdFromLocation();
-        const firstPanelId = listedPanels.length > 0 ? listedPanels[0].id : null;
-        const initialPanelId =
-          requestedPanelId !== null && listedPanels.some((panel) => panel.id === requestedPanelId)
-            ? requestedPanelId
-            : firstPanelId;
-
-        setActivePanelId(initialPanelId);
-        setActiveConversation(null);
-
-        if (initialPanelId !== null) {
-          await loadPanelConversations(stored.accessToken, initialPanelId);
-        } else {
-          setPanelConversations([]);
-        }
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        handleApiError(error, "Failed to load chat workspace.");
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [handleApiError, router]);
-
-  useEffect(() => {
-    /**
-     * Purpose: Closes open conversation action menus when user clicks outside a menu root.
-     * Inputs: Global document pointer-down events.
-     * Outputs: No return value; updates open-menu state.
-     */
-    const handlePointerDown = (event: PointerEvent): void => {
-      const target = event.target;
-      if (!(target instanceof Element)) {
-        return;
-      }
-
-      if (!target.closest("[data-conversation-menu-root='true']")) {
-        setConversationActionsMenu(null);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, []);
-
-  useEffect(() => {
-    /**
-     * Purpose: Closes the floating conversation actions menu when layout movement would invalidate its anchor position.
-     * Inputs: Current menu open state plus global resize/scroll events.
-     * Outputs: No return value; resets open-menu state when viewport changes.
-     */
-    if (!conversationActionsMenu) {
-      return;
-    }
-
-    const closeMenu = (): void => {
-      setConversationActionsMenu(null);
-    };
-
-    window.addEventListener("resize", closeMenu);
-    document.addEventListener("scroll", closeMenu, true);
-
-    return () => {
-      window.removeEventListener("resize", closeMenu);
-      document.removeEventListener("scroll", closeMenu, true);
-    };
-  }, [conversationActionsMenu]);
-
-  function handleLogout(): void {
-    /**
-     * Purpose: Clears local auth/session state and returns user to dashboard login screen.
-     * Inputs: None.
-     * Outputs: No return value; clears auth-related state and navigates to `/`.
-     */
-    clearSignedInState();
-    router.replace("/");
-  }
-
-  async function handleDeleteAccount(): Promise<void> {
-    /**
-     * Purpose: Deletes the signed-in account and all owned data after explicit email confirmation.
-     * Inputs: None.
-     * Outputs: No return value; clears chat state and returns to the dashboard when deletion succeeds.
-     */
-    if (!auth) {
-      return;
-    }
-
-    const confirmation = window.prompt(
-      `Type ${auth.account.email} to permanently delete your account, panels, conversations, prompts, and responses.`
-    );
-    if (confirmation === null) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setConversationActionsMenu(null);
-    setIsBusy(true);
-    try {
-      await requestJson<DeletedAccount>({
-        path: "/api/account",
-        method: "DELETE",
-        accessToken: auth.accessToken,
-        body: {
-          confirmEmail: confirmation
-        }
-      });
-      clearSignedInState();
-      router.replace("/");
-    } catch (error) {
-      handleApiError(error, "Failed to delete account.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleSelectConversationFromList(conversationId: number): Promise<void> {
-    /**
-     * Purpose: Opens one conversation selected from the active-panel conversation list.
-     * Inputs: Conversation id from list button click.
-     * Outputs: No return value; updates active conversation and status state.
-     */
-    if (!auth) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setConversationActionsMenu(null);
-    setIsBusy(true);
-    try {
-      const loadedConversation = await openConversationById(auth.accessToken, conversationId);
-      if (typeof window !== "undefined" && window.matchMedia("(max-width: 1040px)").matches) {
-        setIsSidebarOpen(false);
-      }
-      setStatusMessage(`Loaded conversation: ${loadedConversation.name}.`);
-    } catch (error) {
-      handleApiError(error, "Failed to open conversation.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleDeleteConversation(conversation: ConversationListItemView): Promise<void> {
-    /**
-     * Purpose: Deletes one conversation from active-panel list and clears active view when needed.
-     * Inputs: Conversation list item selected for deletion.
-     * Outputs: No return value; updates list, active conversation, and status text.
-     */
-    if (!auth) {
-      return;
-    }
-
-    if (!window.confirm(`Delete conversation "${conversation.name}"?`)) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setConversationActionsMenu(null);
-    setIsBusy(true);
-    try {
-      await requestJson<{ id: number }>({
-        path: `/api/conversations/${conversation.id}`,
-        method: "DELETE",
-        accessToken: auth.accessToken
-      });
-      if (activeConversation?.id === conversation.id) {
-        setActiveConversation(null);
-      }
-      await loadPanelConversations(auth.accessToken, conversation.panelId);
-      await loadPanels(auth.accessToken);
-      setStatusMessage(`Deleted conversation: ${conversation.name}.`);
-    } catch (error) {
-      handleApiError(error, "Failed to delete conversation.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleRenameConversation(conversation: ConversationListItemView): Promise<void> {
-    /**
-     * Purpose: Renames one conversation from active-panel list and refreshes list/thread state.
-     * Inputs: Conversation list item selected for rename.
-     * Outputs: No return value; updates list, active conversation name, and status text.
-     */
-    if (!auth) {
-      return;
-    }
-
-    const rawName = window.prompt("Rename conversation", conversation.name);
-    if (rawName === null) {
-      return;
-    }
-
-    const nextName = rawName.trim();
-    if (nextName.length === 0) {
-      setStatusMessage("");
-      setErrorMessage("Conversation name is required.");
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setConversationActionsMenu(null);
-    setIsBusy(true);
-    try {
-      const renamed = await requestJson<ConversationListItemView>({
-        path: `/api/conversations/${conversation.id}`,
-        method: "PATCH",
-        accessToken: auth.accessToken,
-        body: {
-          name: nextName
-        }
-      });
-
-      setActiveConversation((current) => {
-        /**
-         * Purpose: Keeps active thread title in sync immediately after successful rename.
-         * Inputs: Current active conversation state snapshot.
-         * Outputs: Updated active conversation state with renamed title when ids match.
-         */
-        if (!current || current.id !== renamed.id) {
-          return current;
-        }
-
-        return {
-          ...current,
-          name: renamed.name
-        };
-      });
-
-      await loadPanelConversations(auth.accessToken, conversation.panelId);
-      await loadPanels(auth.accessToken);
-      setStatusMessage(`Renamed conversation: ${renamed.name}.`);
-    } catch (error) {
-      handleApiError(error, "Failed to rename conversation.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  function toggleConversationActionsMenu(
-    event: MouseEvent<HTMLButtonElement>,
-    conversation: ConversationListItemView
-  ): void {
-    /**
-     * Purpose: Opens or closes the floating actions menu anchored to one conversation row trigger.
-     * Inputs: Trigger button click event and the target conversation list item.
-     * Outputs: No return value; updates menu visibility and viewport coordinates.
-     */
-    const triggerRect = event.currentTarget.getBoundingClientRect();
-    const dropdownWidth = 148;
-    const dropdownHeight = 96;
-    const viewportPadding = 12;
-    const nextLeft = Math.min(
-      Math.max(viewportPadding, triggerRect.right - dropdownWidth),
-      window.innerWidth - dropdownWidth - viewportPadding
-    );
-    const preferredTop = triggerRect.bottom + 6;
-    const fallbackTop = triggerRect.top - dropdownHeight - 6;
-    const nextTop =
-      preferredTop + dropdownHeight <= window.innerHeight - viewportPadding
-        ? preferredTop
-        : Math.max(viewportPadding, fallbackTop);
-
-    setConversationActionsMenu((current) => {
-      /**
-       * Purpose: Toggles off the existing menu when the same conversation trigger is pressed again.
-       * Inputs: Current floating menu state snapshot.
-       * Outputs: Replacement menu state or null when toggled closed.
-       */
-      if (current?.conversation.id === conversation.id) {
+    if (!rawValue) {
         return null;
-      }
-
-      return {
-        conversation,
-        top: nextTop,
-        left: nextLeft
-      };
+    }
+    const parsed = Number(rawValue);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+        return null;
+    }
+    return parsed;
+}
+function readRequestedPanelIdFromLocation(): number | null {
+    if (typeof window === "undefined") {
+        return null;
+    }
+    const query = new URLSearchParams(window.location.search);
+    return parsePositiveInteger(query.get("panelId"));
+}
+function buildFallbackConversationName(promptContent: string): string {
+    const normalized = promptContent.replace(/\s+/g, " ").trim();
+    if (normalized.length === 0) {
+        return "New conversation";
+    }
+    return normalized.slice(0, AUTO_CONVERSATION_NAME_MAX_LENGTH);
+}
+async function requestJson<T>(args: {
+    path: string;
+    method?: "GET" | "POST" | "PATCH" | "DELETE";
+    accessToken?: string;
+    headers?: Record<string, string>;
+    body?: unknown;
+}): Promise<T> {
+    const headers: Record<string, string> = { ...(args.headers ?? {}) };
+    if (args.body !== undefined) {
+        headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
+    }
+    if (args.accessToken) {
+        headers.Authorization = `Bearer ${args.accessToken}`;
+    }
+    const response = await fetch(args.path, {
+        method: args.method ?? "GET",
+        headers,
+        body: args.body !== undefined ? JSON.stringify(args.body) : undefined
     });
-  }
-
-  async function handleSubmitPrompt(event: FormEvent<HTMLFormElement>): Promise<void> {
-    /**
-     * Purpose: Sends a prompt, auto-creating a conversation for the active panel when one is not yet selected.
-     * Inputs: Submitted prompt form event.
-     * Outputs: No return value; updates active conversation prompt history.
-     */
-    event.preventDefault();
-    if (!auth || activePanelId === null) {
-      return;
+    const payload = (await response.json().catch(() => ({}))) as T | ApiErrorShape;
+    if (!response.ok) {
+        const message = typeof payload === "object" &&
+            payload !== null &&
+            "error" in payload &&
+            typeof payload.error === "string"
+            ? payload.error
+            : `Request failed (${response.status}).`;
+        throw new Error(message);
     }
-
-    const submittedPrompt = promptInput.trim();
-    if (submittedPrompt.length === 0) {
-      return;
+    return payload as T;
+}
+function createClientOperationId(): string {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
     }
-
-    if (promptSubmitLockRef.current || isBusy) {
-      return;
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+function readStoredAuth(): AuthSuccess | null {
+    if (typeof window === "undefined") {
+        return null;
     }
-    promptSubmitLockRef.current = true;
-    const submitOperationId = createClientOperationId();
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) {
+        return null;
+    }
     try {
-      let baseConversation = activeConversation;
-      if (!baseConversation) {
-        let autoConversationName = buildFallbackConversationName(submittedPrompt);
-        try {
-          autoConversationName = await generateConversationTitle(
-            auth.accessToken,
-            submittedPrompt,
-            `title:${submitOperationId}`
-          );
-        } catch (titleError) {
-          const message = titleError instanceof Error ? titleError.message : "";
-          if (message === INVALID_ACCESS_TOKEN_MESSAGE) {
-            throw titleError;
-          }
+        return JSON.parse(raw) as AuthSuccess;
+    }
+    catch {
+        return null;
+    }
+}
+function writeStoredAuth(auth: AuthSuccess | null): void {
+    if (typeof window === "undefined") {
+        return;
+    }
+    if (!auth) {
+        window.localStorage.removeItem(AUTH_STORAGE_KEY);
+        return;
+    }
+    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(auth));
+}
+export default function ChatPage() {
+    const router = useRouter();
+    const [auth, setAuth] = useState<AuthSuccess | null>(null);
+    const [panels, setPanels] = useState<PanelView[]>([]);
+    const [activePanelId, setActivePanelId] = useState<number | null>(null);
+    const [panelConversations, setPanelConversations] = useState<ConversationListItemView[]>([]);
+    const [activeConversation, setActiveConversation] = useState<ConversationView | null>(null);
+    const [conversationActionsMenu, setConversationActionsMenu] = useState<ConversationActionsMenuState | null>(null);
+    const [promptInput, setPromptInput] = useState("");
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const [isDeleteAccountDialogOpen, setIsDeleteAccountDialogOpen] = useState(false);
+    const [deleteAccountConfirmEmail, setDeleteAccountConfirmEmail] = useState("");
+    const [deleteAccountCurrentPassword, setDeleteAccountCurrentPassword] = useState("");
+    const [statusMessage, setStatusMessage] = useState("");
+    const [errorMessage, setErrorMessage] = useState("");
+    const [isBusy, setIsBusy] = useState(false);
+    const promptSubmitLockRef = useRef(false);
+    const activePanel = useMemo(() => {
+        if (activePanelId === null) {
+            return null;
         }
-
-        const createdConversation = await requestJson<ConversationView>({
-          path: "/api/conversations",
-          method: "POST",
-          accessToken: auth.accessToken,
-          headers: {
-            "Idempotency-Key": `conversation:${submitOperationId}`
-          },
-          body: {
-            panelId: activePanelId,
-            name: autoConversationName
-          }
+        return panels.find((panel) => panel.id === activePanelId) ?? null;
+    }, [panels, activePanelId]);
+    const expertNameById = useMemo(() => {
+        return new Map((activePanel?.experts ?? []).map((expert) => [expert.id, expert.name]));
+    }, [activePanel]);
+    useEffect(() => {
+        setConversationActionsMenu(null);
+    }, [activePanelId]);
+    const clearSignedInState = useCallback((): void => {
+        setAuth(null);
+        setPanels([]);
+        setActivePanelId(null);
+        setPanelConversations([]);
+        setActiveConversation(null);
+        setPromptInput("");
+        setConversationActionsMenu(null);
+        resetDeleteAccountForm();
+        writeStoredAuth(null);
+    }, []);
+    const clearSessionForExpiredToken = useCallback((message: string): void => {
+        clearSignedInState();
+        setStatusMessage("");
+        setErrorMessage(message);
+        router.replace("/");
+    }, [clearSignedInState, router]);
+    const handleApiError = useCallback((error: unknown, fallbackMessage: string): void => {
+        const message = error instanceof Error ? error.message : fallbackMessage;
+        if (message === INVALID_ACCESS_TOKEN_MESSAGE) {
+            clearSessionForExpiredToken(message);
+            return;
+        }
+        setErrorMessage(message);
+    }, [clearSessionForExpiredToken]);
+    async function loadPanels(accessToken: string): Promise<PanelView[]> {
+        const listedPanels = await requestJson<PanelView[]>({
+            path: "/api/panels",
+            method: "GET",
+            accessToken
         });
-        baseConversation = sortConversation(createdConversation);
-        setActiveConversation(baseConversation);
-        await loadPanelConversations(auth.accessToken, activePanelId);
-      }
-
-      const created = await requestJson<PromptCreateResponse>({
-        path: `/api/conversations/${baseConversation.id}/prompts`,
-        method: "POST",
-        accessToken: auth.accessToken,
-        headers: {
-          "Idempotency-Key": `prompt:${submitOperationId}`
-        },
-        body: {
-          content: submittedPrompt
+        setPanels(listedPanels);
+        return listedPanels;
+    }
+    async function loadPanelConversations(accessToken: string, panelId: number): Promise<void> {
+        const listedConversations = await requestJson<ConversationListItemView[]>({
+            path: `/api/conversations?panelId=${panelId}`,
+            method: "GET",
+            accessToken
+        });
+        setPanelConversations(listedConversations);
+    }
+    async function openConversationById(accessToken: string, conversationId: number): Promise<ConversationView> {
+        const conversation = await requestJson<ConversationView>({
+            path: `/api/conversations/${conversationId}`,
+            method: "GET",
+            accessToken
+        });
+        const sortedConversation = sortConversation(conversation);
+        setActiveConversation(sortedConversation);
+        return sortedConversation;
+    }
+    async function generateConversationTitle(accessToken: string, prompt: string, idempotencyKey: string): Promise<string> {
+        const response = await requestJson<ConversationTitleResponse>({
+            path: "/api/conversations/title",
+            method: "POST",
+            accessToken,
+            headers: {
+                "Idempotency-Key": idempotencyKey
+            },
+            body: { prompt }
+        });
+        return response.title;
+    }
+    useEffect(() => {
+        const stored = readStoredAuth();
+        if (!stored) {
+            router.replace("/");
+            return;
         }
-      });
-
-      setActiveConversation((current) => {
-        const currentConversation =
-          current && current.id === created.prompt.conversationId ? current : baseConversation;
-        if (!currentConversation) {
-          return current;
-        }
-
-        const appendedPrompt: ConversationPromptView = {
-          ...created.prompt,
-          responses: [...created.responses].sort(
-            (left, right) => left.sequence - right.sequence || left.id - right.id
-          )
+        setAuth(stored);
+        let cancelled = false;
+        void (async () => {
+            try {
+                const listedPanels = await loadPanels(stored.accessToken);
+                if (cancelled) {
+                    return;
+                }
+                const requestedPanelId = readRequestedPanelIdFromLocation();
+                const firstPanelId = listedPanels.length > 0 ? listedPanels[0].id : null;
+                const initialPanelId = requestedPanelId !== null && listedPanels.some((panel) => panel.id === requestedPanelId)
+                    ? requestedPanelId
+                    : firstPanelId;
+                setActivePanelId(initialPanelId);
+                setActiveConversation(null);
+                if (initialPanelId !== null) {
+                    await loadPanelConversations(stored.accessToken, initialPanelId);
+                }
+                else {
+                    setPanelConversations([]);
+                }
+            }
+            catch (error) {
+                if (cancelled) {
+                    return;
+                }
+                handleApiError(error, "Failed to load chat workspace.");
+            }
+        })();
+        return () => {
+            cancelled = true;
         };
-
-        return sortConversation({
-          ...currentConversation,
-          prompts: [...currentConversation.prompts, appendedPrompt]
+    }, [handleApiError, router]);
+    useEffect(() => {
+        const handlePointerDown = (event: PointerEvent): void => {
+            const target = event.target;
+            if (!(target instanceof Element)) {
+                return;
+            }
+            if (!target.closest("[data-conversation-menu-root='true']")) {
+                setConversationActionsMenu(null);
+            }
+        };
+        document.addEventListener("pointerdown", handlePointerDown);
+        return () => {
+            document.removeEventListener("pointerdown", handlePointerDown);
+        };
+    }, []);
+    useEffect(() => {
+        if (!conversationActionsMenu) {
+            return;
+        }
+        const closeMenu = (): void => {
+            setConversationActionsMenu(null);
+        };
+        window.addEventListener("resize", closeMenu);
+        document.addEventListener("scroll", closeMenu, true);
+        return () => {
+            window.removeEventListener("resize", closeMenu);
+            document.removeEventListener("scroll", closeMenu, true);
+        };
+    }, [conversationActionsMenu]);
+    function handleLogout(): void {
+        clearSignedInState();
+        router.replace("/");
+    }
+    function resetDeleteAccountForm(): void {
+        setIsDeleteAccountDialogOpen(false);
+        setDeleteAccountConfirmEmail("");
+        setDeleteAccountCurrentPassword("");
+    }
+    function openDeleteAccountDialog(): void {
+        resetDeleteAccountForm();
+        setStatusMessage("");
+        setErrorMessage("");
+        setConversationActionsMenu(null);
+        setIsDeleteAccountDialogOpen(true);
+    }
+    function closeDeleteAccountDialog(): void {
+        resetDeleteAccountForm();
+    }
+    async function handleDeleteAccount(event: FormEvent<HTMLFormElement>): Promise<void> {
+        event.preventDefault();
+        if (!auth) {
+            return;
+        }
+        setStatusMessage("");
+        setErrorMessage("");
+        setConversationActionsMenu(null);
+        setIsBusy(true);
+        try {
+            await requestJson<DeletedAccount>({
+                path: "/api/account",
+                method: "POST",
+                accessToken: auth.accessToken,
+                body: {
+                    confirmEmail: deleteAccountConfirmEmail,
+                    currentPassword: deleteAccountCurrentPassword
+                }
+            });
+            resetDeleteAccountForm();
+            clearSignedInState();
+            router.replace("/");
+        }
+        catch (error) {
+            handleApiError(error, "Failed to delete account.");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    }
+    async function handleSelectConversationFromList(conversationId: number): Promise<void> {
+        if (!auth) {
+            return;
+        }
+        setStatusMessage("");
+        setErrorMessage("");
+        setConversationActionsMenu(null);
+        setIsBusy(true);
+        try {
+            const loadedConversation = await openConversationById(auth.accessToken, conversationId);
+            if (typeof window !== "undefined" && window.matchMedia("(max-width: 1040px)").matches) {
+                setIsSidebarOpen(false);
+            }
+            setStatusMessage(`Loaded conversation: ${loadedConversation.name}.`);
+        }
+        catch (error) {
+            handleApiError(error, "Failed to open conversation.");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    }
+    async function handleDeleteConversation(conversation: ConversationListItemView): Promise<void> {
+        if (!auth) {
+            return;
+        }
+        if (!window.confirm(`Delete conversation "${conversation.name}"?`)) {
+            return;
+        }
+        setStatusMessage("");
+        setErrorMessage("");
+        setConversationActionsMenu(null);
+        setIsBusy(true);
+        try {
+            await requestJson<{
+                id: number;
+            }>({
+                path: `/api/conversations/${conversation.id}`,
+                method: "DELETE",
+                accessToken: auth.accessToken
+            });
+            if (activeConversation?.id === conversation.id) {
+                setActiveConversation(null);
+            }
+            await loadPanelConversations(auth.accessToken, conversation.panelId);
+            await loadPanels(auth.accessToken);
+            setStatusMessage(`Deleted conversation: ${conversation.name}.`);
+        }
+        catch (error) {
+            handleApiError(error, "Failed to delete conversation.");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    }
+    async function handleRenameConversation(conversation: ConversationListItemView): Promise<void> {
+        if (!auth) {
+            return;
+        }
+        const rawName = window.prompt("Rename conversation", conversation.name);
+        if (rawName === null) {
+            return;
+        }
+        const nextName = rawName.trim();
+        if (nextName.length === 0) {
+            setStatusMessage("");
+            setErrorMessage("Conversation name is required.");
+            return;
+        }
+        setStatusMessage("");
+        setErrorMessage("");
+        setConversationActionsMenu(null);
+        setIsBusy(true);
+        try {
+            const renamed = await requestJson<ConversationListItemView>({
+                path: `/api/conversations/${conversation.id}`,
+                method: "PATCH",
+                accessToken: auth.accessToken,
+                body: {
+                    name: nextName
+                }
+            });
+            setActiveConversation((current) => {
+                if (!current || current.id !== renamed.id) {
+                    return current;
+                }
+                return {
+                    ...current,
+                    name: renamed.name
+                };
+            });
+            await loadPanelConversations(auth.accessToken, conversation.panelId);
+            await loadPanels(auth.accessToken);
+            setStatusMessage(`Renamed conversation: ${renamed.name}.`);
+        }
+        catch (error) {
+            handleApiError(error, "Failed to rename conversation.");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    }
+    function toggleConversationActionsMenu(event: MouseEvent<HTMLButtonElement>, conversation: ConversationListItemView): void {
+        const triggerRect = event.currentTarget.getBoundingClientRect();
+        const dropdownWidth = 148;
+        const dropdownHeight = 96;
+        const viewportPadding = 12;
+        const nextLeft = Math.min(Math.max(viewportPadding, triggerRect.right - dropdownWidth), window.innerWidth - dropdownWidth - viewportPadding);
+        const preferredTop = triggerRect.bottom + 6;
+        const fallbackTop = triggerRect.top - dropdownHeight - 6;
+        const nextTop = preferredTop + dropdownHeight <= window.innerHeight - viewportPadding
+            ? preferredTop
+            : Math.max(viewportPadding, fallbackTop);
+        setConversationActionsMenu((current) => {
+            if (current?.conversation.id === conversation.id) {
+                return null;
+            }
+            return {
+                conversation,
+                top: nextTop,
+                left: nextLeft
+            };
         });
-      });
-
-      setPromptInput("");
-      setStatusMessage("Prompt submitted.");
-      await loadPanels(auth.accessToken);
-      await loadPanelConversations(auth.accessToken, activePanelId);
-    } catch (error) {
-      handleApiError(error, "Failed to submit prompt.");
-    } finally {
-      promptSubmitLockRef.current = false;
-      setIsBusy(false);
     }
-  }
-
-  function handlePromptInputKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
-    /**
-     * Purpose: Submits the prompt form on Enter while preserving Shift+Enter as newline behavior.
-     * Inputs: Textarea keyboard event.
-     * Outputs: No return value; conditionally triggers form submit.
-     */
-    if (
-      event.key !== "Enter" ||
-      event.shiftKey ||
-      event.repeat ||
-      event.nativeEvent.isComposing
-    ) {
-      return;
+    async function handleSubmitPrompt(event: FormEvent<HTMLFormElement>): Promise<void> {
+        event.preventDefault();
+        if (!auth || activePanelId === null) {
+            return;
+        }
+        const submittedPrompt = promptInput.trim();
+        if (submittedPrompt.length === 0) {
+            return;
+        }
+        if (promptSubmitLockRef.current || isBusy) {
+            return;
+        }
+        promptSubmitLockRef.current = true;
+        const submitOperationId = createClientOperationId();
+        setStatusMessage("");
+        setErrorMessage("");
+        setIsBusy(true);
+        try {
+            let baseConversation = activeConversation;
+            if (!baseConversation) {
+                let autoConversationName = buildFallbackConversationName(submittedPrompt);
+                try {
+                    autoConversationName = await generateConversationTitle(auth.accessToken, submittedPrompt, `title:${submitOperationId}`);
+                }
+                catch (titleError) {
+                    const message = titleError instanceof Error ? titleError.message : "";
+                    if (message === INVALID_ACCESS_TOKEN_MESSAGE) {
+                        throw titleError;
+                    }
+                }
+                const createdConversation = await requestJson<ConversationView>({
+                    path: "/api/conversations",
+                    method: "POST",
+                    accessToken: auth.accessToken,
+                    headers: {
+                        "Idempotency-Key": `conversation:${submitOperationId}`
+                    },
+                    body: {
+                        panelId: activePanelId,
+                        name: autoConversationName
+                    }
+                });
+                baseConversation = sortConversation(createdConversation);
+                setActiveConversation(baseConversation);
+                await loadPanelConversations(auth.accessToken, activePanelId);
+            }
+            const created = await requestJson<PromptCreateResponse>({
+                path: `/api/conversations/${baseConversation.id}/prompts`,
+                method: "POST",
+                accessToken: auth.accessToken,
+                headers: {
+                    "Idempotency-Key": `prompt:${submitOperationId}`
+                },
+                body: {
+                    content: submittedPrompt
+                }
+            });
+            setActiveConversation((current) => {
+                const currentConversation = current && current.id === created.prompt.conversationId ? current : baseConversation;
+                if (!currentConversation) {
+                    return current;
+                }
+                const appendedPrompt: ConversationPromptView = {
+                    ...created.prompt,
+                    responses: [...created.responses].sort((left, right) => left.sequence - right.sequence || left.id - right.id)
+                };
+                return sortConversation({
+                    ...currentConversation,
+                    prompts: [...currentConversation.prompts, appendedPrompt]
+                });
+            });
+            setPromptInput("");
+            setStatusMessage("Prompt submitted.");
+            await loadPanels(auth.accessToken);
+            await loadPanelConversations(auth.accessToken, activePanelId);
+        }
+        catch (error) {
+            handleApiError(error, "Failed to submit prompt.");
+        }
+        finally {
+            promptSubmitLockRef.current = false;
+            setIsBusy(false);
+        }
     }
-
-    event.preventDefault();
-    event.currentTarget.form?.requestSubmit();
-  }
-
-  return (
-    <main className="page">
-      {auth ? (
-        <div className={`workspace ${isSidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
-          <button
-            type="button"
-            className="sidebar-backdrop"
-            aria-label="Close conversation sidebar"
-            onClick={() => setIsSidebarOpen(false)}
-          />
+    function handlePromptInputKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
+        if (event.key !== "Enter" ||
+            event.shiftKey ||
+            event.repeat ||
+            event.nativeEvent.isComposing) {
+            return;
+        }
+        event.preventDefault();
+        event.currentTarget.form?.requestSubmit();
+    }
+    return (<main className="page">
+      {auth ? (<div className={`workspace ${isSidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
+          <button type="button" className="sidebar-backdrop" aria-label="Close conversation sidebar" onClick={() => setIsSidebarOpen(false)}/>
           <aside className="sidebar-shell">
             <div className="sidebar-top">
               <div className="sidebar-head">
@@ -877,85 +618,49 @@ export default function ChatPage() {
               </div>
 
               <div className="sidebar-actions">
-                <button
-                  type="button"
-                  className="mobile-only"
-                  onClick={() => setIsSidebarOpen(false)}
-                >
+                <button type="button" className="mobile-only" onClick={() => setIsSidebarOpen(false)}>
                   Close
                 </button>
                 <button type="button" onClick={() => router.push("/")}>
                   Back to expert selection
                 </button>
               </div>
-              <button
-                type="button"
-                className="new-chat-button"
-                onClick={() => {
-                  setActiveConversation(null);
-                  setConversationActionsMenu(null);
-                  setPromptInput("");
-                  setStatusMessage("");
-                  setErrorMessage("");
-                }}
-                disabled={activePanelId === null || isBusy}
-              >
+              <button type="button" className="new-chat-button" onClick={() => {
+                setActiveConversation(null);
+                setConversationActionsMenu(null);
+                setPromptInput("");
+                setStatusMessage("");
+                setErrorMessage("");
+            }} disabled={activePanelId === null || isBusy}>
                 New chat
               </button>
 
-              {activePanel ? (
-                <div className="panel-meta">
+              {activePanel ? (<div className="panel-meta">
                   <p>
                     <strong>{activePanel.name}</strong>
                   </p>
                   <ul className="panel-experts">
-                    {activePanel.experts.length > 0 ? (
-                      activePanel.experts.map((expert) => <li key={expert.id}>{expert.name}</li>)
-                    ) : (
-                      <li>None</li>
-                    )}
+                    {activePanel.experts.length > 0 ? (activePanel.experts.map((expert) => <li key={expert.id}>{expert.name}</li>)) : (<li>None</li>)}
                   </ul>
-                </div>
-              ) : (
-                <p className="hint">Create/select a panel on the dashboard before chatting.</p>
-              )}
+                </div>) : (<p className="hint">Create/select a panel on the dashboard before chatting.</p>)}
             </div>
 
             <div className="sidebar-conversation-area">
-              {panelConversations.length === 0 ? (
-                <p className="hint">No conversations yet for this panel.</p>
-              ) : null}
-              {panelConversations.length > 0 ? (
-                <ul className="conversation-list">
-                  {panelConversations.map((conversation) => (
-                    <li key={conversation.id}>
+              {panelConversations.length === 0 ? (<p className="hint">No conversations yet for this panel.</p>) : null}
+              {panelConversations.length > 0 ? (<ul className="conversation-list">
+                  {panelConversations.map((conversation) => (<li key={conversation.id}>
                       <div className="conversation-row">
-                        <button
-                          type="button"
-                          className={`conversation-item ${activeConversation?.id === conversation.id ? "selected" : ""}`}
-                          onClick={() => void handleSelectConversationFromList(conversation.id)}
-                          disabled={isBusy}
-                        >
+                        <button type="button" className={`conversation-item ${activeConversation?.id === conversation.id ? "selected" : ""}`} onClick={() => void handleSelectConversationFromList(conversation.id)} disabled={isBusy}>
                           <span>{conversation.name}</span>
                         </button>
                         <div className="conversation-actions-menu" data-conversation-menu-root="true">
-                          <button
-                            type="button"
-                            className="conversation-actions-trigger compact"
-                            aria-haspopup="menu"
-                            aria-expanded={conversationActionsMenu?.conversation.id === conversation.id}
-                            aria-label={`Open actions for ${conversation.name}`}
-                            onClick={(event) => toggleConversationActionsMenu(event, conversation)}
-                            disabled={isBusy}
-                          >
+                          <button type="button" className="conversation-actions-trigger compact" aria-haspopup="menu" aria-expanded={conversationActionsMenu?.conversation.id === conversation.id} aria-label={`Open actions for ${conversation.name}`} onClick={(event) => toggleConversationActionsMenu(event, conversation)} disabled={isBusy}>
                             <span aria-hidden="true">⋮</span>
                           </button>
                         </div>
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
+                    </li>))}
+                </ul>) : null}
             </div>
           </aside>
 
@@ -963,18 +668,12 @@ export default function ChatPage() {
             <div className="chat-topbar">
               <div className="chat-topbar-main">
                 <div className="chat-topbar-left">
-                  <button
-                    type="button"
-                    className="sidebar-toggle"
-                    onClick={() => setIsSidebarOpen(true)}
-                  >
+                  <button type="button" className="sidebar-toggle" onClick={() => setIsSidebarOpen(true)}>
                     Conversations
                   </button>
                   <div>
                     <h2>{activeConversation ? activeConversation.name : "No active conversation"}</h2>
-                    {!activeConversation ? (
-                      <p>Send a prompt to start a new conversation, or pick one from the left panel.</p>
-                    ) : null}
+                    {!activeConversation ? (<p>Send a prompt to start a new conversation, or pick one from the left panel.</p>) : null}
                   </div>
                 </div>
                 <div className="chat-account">
@@ -985,35 +684,23 @@ export default function ChatPage() {
                     <button type="button" onClick={handleLogout} disabled={isBusy}>
                       Logout
                     </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => void handleDeleteAccount()}
-                      disabled={isBusy}
-                    >
+                    <button type="button" className="danger" onClick={openDeleteAccountDialog} disabled={isBusy}>
                       Delete Account
                     </button>
                   </div>
                 </div>
               </div>
-              {errorMessage ? (
-                <p className="inline-feedback inline-feedback-error" role="alert">
+              {errorMessage ? (<p className="inline-feedback inline-feedback-error" role="alert">
                   {errorMessage}
-                </p>
-              ) : null}
-              {!errorMessage && statusMessage ? (
-                <p className="inline-feedback inline-feedback-success" aria-live="polite">
+                </p>) : null}
+              {!errorMessage && statusMessage ? (<p className="inline-feedback inline-feedback-success" aria-live="polite">
                   {statusMessage}
-                </p>
-              ) : null}
+                </p>) : null}
             </div>
 
             <div className="thread">
               <div className="thread-inner">
-                {activeConversation ? (
-                  activeConversation.prompts.length > 0 ? (
-                    activeConversation.prompts.map((prompt) => (
-                      <div key={prompt.id} className="turn">
+                {activeConversation ? (activeConversation.prompts.length > 0 ? (activeConversation.prompts.map((prompt) => (<div key={prompt.id} className="turn">
                         <article className="message user-message">
                           <div className="message-meta">
                             <strong>You</strong>
@@ -1022,39 +709,23 @@ export default function ChatPage() {
                           <p>{prompt.content}</p>
                         </article>
 
-                        {prompt.responses.map((response) => (
-                          <article key={response.id} className="message assistant-message">
+                        {prompt.responses.map((response) => (<article key={response.id} className="message assistant-message">
                             <div className="message-meta">
                               <strong>
                                 {expertNameById.get(response.expertId) ??
-                                  `Expert ${response.sequence}`}
+                        `Expert ${response.sequence}`}
                               </strong>
                             </div>
                             <p>{response.content}</p>
-                          </article>
-                        ))}
-                      </div>
-                    ))
-                  ) : (
-                    <p className="empty-state">No prompts yet. Send your first prompt below.</p>
-                  )
-                ) : (
-                  <p className="empty-state">No active conversation selected.</p>
-                )}
+                          </article>))}
+                      </div>))) : (<p className="empty-state">No prompts yet. Send your first prompt below.</p>)) : (<p className="empty-state">No active conversation selected.</p>)}
               </div>
             </div>
 
             <form className="composer" onSubmit={(event) => void handleSubmitPrompt(event)}>
               <label className="composer-label">
                 <span className="visually-hidden">Message</span>
-                <textarea
-                  value={promptInput}
-                  onChange={(event) => setPromptInput(event.target.value)}
-                  onKeyDown={handlePromptInputKeyDown}
-                  rows={3}
-                  placeholder="Ask your panel anything..."
-                  required
-                />
+                <textarea value={promptInput} onChange={(event) => setPromptInput(event.target.value)} onKeyDown={handlePromptInputKeyDown} rows={3} placeholder="Ask your panel anything..." required/>
               </label>
               <div className="composer-actions">
                 <button className="send-button" type="submit" disabled={activePanelId === null || isBusy}>
@@ -1063,43 +734,54 @@ export default function ChatPage() {
               </div>
             </form>
 
-            {conversationActionsMenu ? (
-              <div
-                className="conversation-actions-dropdown floating"
-                data-conversation-menu-root="true"
-                role="menu"
-                style={{
-                  top: `${conversationActionsMenu.top}px`,
-                  left: `${conversationActionsMenu.left}px`
-                }}
-              >
-                <button
-                  type="button"
-                  className="conversation-actions-item"
-                  role="menuitem"
-                  onClick={() => void handleRenameConversation(conversationActionsMenu.conversation)}
-                  disabled={isBusy}
-                >
+            {conversationActionsMenu ? (<div className="conversation-actions-dropdown floating" data-conversation-menu-root="true" role="menu" style={{
+                    top: `${conversationActionsMenu.top}px`,
+                    left: `${conversationActionsMenu.left}px`
+                }}>
+                <button type="button" className="conversation-actions-item" role="menuitem" onClick={() => void handleRenameConversation(conversationActionsMenu.conversation)} disabled={isBusy}>
                   Rename
                 </button>
-                <button
-                  type="button"
-                  className="conversation-actions-item danger"
-                  role="menuitem"
-                  onClick={() => void handleDeleteConversation(conversationActionsMenu.conversation)}
-                  disabled={isBusy}
-                >
+                <button type="button" className="conversation-actions-item danger" role="menuitem" onClick={() => void handleDeleteConversation(conversationActionsMenu.conversation)} disabled={isBusy}>
                   Delete
                 </button>
-              </div>
-            ) : null}
+              </div>) : null}
           </section>
-        </div>
-      ) : (
-        <section className="redirect-card">
+        </div>) : (<section className="redirect-card">
           <p>Redirecting to login...</p>
-        </section>
-      )}
+        </section>)}
+
+      {auth && isDeleteAccountDialogOpen ? (<div className="modal-backdrop" onClick={closeDeleteAccountDialog}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="chat-delete-account-title" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-copy">
+              <h2 id="chat-delete-account-title">Delete Account</h2>
+              <p>
+                This permanently deletes your account, panels, conversations, prompts, and
+                responses.
+              </p>
+              <p>
+                Type <strong>{auth.account.email}</strong> and your current password to confirm.
+              </p>
+            </div>
+            <form className="modal-form" onSubmit={(event) => void handleDeleteAccount(event)}>
+              <label>
+                Confirm Email
+                <input value={deleteAccountConfirmEmail} onChange={(event) => setDeleteAccountConfirmEmail(event.target.value)} type="email" autoComplete="email" required/>
+              </label>
+              <label>
+                Current Password
+                <input value={deleteAccountCurrentPassword} onChange={(event) => setDeleteAccountCurrentPassword(event.target.value)} type="password" autoComplete="current-password" required/>
+              </label>
+              <div className="modal-actions">
+                <button type="button" className="secondary-button" onClick={closeDeleteAccountDialog}>
+                  Cancel
+                </button>
+                <button type="submit" className="danger" disabled={isBusy}>
+                  Delete Account
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>) : null}
 
       <style jsx>{`
         .page {
@@ -1392,6 +1074,53 @@ export default function ChatPage() {
           background: color-mix(in srgb, var(--error-color) 14%, transparent);
         }
 
+        .modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 30;
+          background: rgba(15, 23, 42, 0.48);
+          display: grid;
+          place-items: center;
+          padding: 18px;
+        }
+
+        .modal-card {
+          width: min(100%, 460px);
+          background: var(--card-bg);
+          border: 1px solid var(--card-border);
+          border-radius: 16px;
+          padding: 18px;
+          display: grid;
+          gap: 14px;
+          backdrop-filter: blur(10px);
+          box-shadow: 0 24px 52px -30px rgba(15, 23, 42, 0.7);
+        }
+
+        .modal-copy {
+          display: grid;
+          gap: 6px;
+        }
+
+        .modal-copy h2,
+        .modal-copy p {
+          margin: 0;
+        }
+
+        .modal-form {
+          display: grid;
+          gap: 10px;
+          padding: 0;
+          border: none;
+          background: transparent;
+        }
+
+        .modal-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
         .panel-meta p {
           margin: 0;
         }
@@ -1464,6 +1193,10 @@ export default function ChatPage() {
           align-items: center;
           justify-content: center;
           transition: background-color 120ms ease;
+        }
+
+        .secondary-button {
+          background: transparent;
         }
 
         button:hover,
@@ -1774,6 +1507,5 @@ export default function ChatPage() {
           }
         }
       `}</style>
-    </main>
-  );
+    </main>);
 }

@@ -1,0 +1,14 @@
+@startuml
+!pragma layout smetana
+skinparam componentStyle uml2
+left to right direction
+actor User
+package "API" {
+  [Route]
+}
+package "Domain" {
+  component "AuthService" as Auth
+}
+User --> Route
+Route --> Auth
+@enduml

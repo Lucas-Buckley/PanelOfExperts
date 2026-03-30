@@ -1,8 +1,4 @@
-/*
- * Purpose: Defines app-wide root CSS defaults for edge-to-edge themed backgrounds.
- * Inputs: Browser color-scheme preference via prefers-color-scheme media query.
- * Outputs: Global html/body baseline styles shared by all routes.
- */
+
 html,
 body {
   margin: 0;

@@ -126,4 +126,3 @@ ALTER TABLE "response" ADD CONSTRAINT "response_prompt_id_fkey" FOREIGN KEY ("pr
 
 -- AddForeignKey
 ALTER TABLE "response" ADD CONSTRAINT "response_expert_id_fkey" FOREIGN KEY ("expert_id") REFERENCES "expert"("expert_id") ON DELETE CASCADE ON UPDATE CASCADE;
-

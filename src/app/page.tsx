@@ -1,816 +1,569 @@
 "use client";
-
-/**
- * Purpose: Renders the dashboard UI for authentication, password reset, account deletion, and panel management workflows.
- * Inputs: None.
- * Outputs: Interactive client page for account auth, password reset, account deletion, panel create/select/edit/delete, and chat-page navigation.
- */
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-
 type AccountIdentity = {
-  id: number;
-  email: string;
+    id: number;
+    email: string;
 };
-
 type AuthSuccess = {
-  account: AccountIdentity;
-  accessToken: string;
-  tokenType: "Bearer";
+    account: AccountIdentity;
+    accessToken: string;
+    tokenType: "Bearer";
 };
-
 type PasswordResetRequestResponse = {
-  accepted: true;
-  developmentResetUrl?: string;
+    accepted: true;
+    developmentResetUrl?: string;
 };
-
 type PasswordResetResponse = {
-  account: AccountIdentity;
+    account: AccountIdentity;
 };
-
 type DeletedAccount = {
-  id: number;
-  email: string;
+    id: number;
+    email: string;
 };
-
 type PanelExpertView = {
-  id: number;
-  name: string;
-  specialization: string;
-  soul: string;
-  position: number;
+    id: number;
+    name: string;
+    specialization: string;
+    soul: string;
+    position: number;
 };
-
 type PanelView = {
-  id: number;
-  accountId: number;
-  name: string;
-  description: string | null;
-  instructions: string | null;
-  lastPromptedAt: string | null;
-  experts: PanelExpertView[];
+    id: number;
+    accountId: number;
+    name: string;
+    description: string | null;
+    instructions: string | null;
+    lastPromptedAt: string | null;
+    experts: PanelExpertView[];
 };
-
 type ApiErrorShape = {
-  error?: string;
+    error?: string;
 };
-
 type ExpertDraft = {
-  id: string;
-  expertId: number | null;
-  name: string;
-  specialization: string;
-  soul: string;
+    id: string;
+    expertId: number | null;
+    name: string;
+    specialization: string;
+    soul: string;
 };
-
 const AUTH_STORAGE_KEY = "poe-auth";
 const INVALID_ACCESS_TOKEN_MESSAGE = "Invalid or expired access token.";
 let expertDraftCounter = 0;
-
 function readResetTokenFromLocation(): string {
-  /**
-   * Purpose: Reads an optional password-reset token from the current browser URL.
-   * Inputs: Browser `window.location.search`.
-   * Outputs: Trimmed reset token string or empty string when absent.
-   */
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  return new URLSearchParams(window.location.search).get("resetToken")?.trim() ?? "";
+    if (typeof window === "undefined") {
+        return "";
+    }
+    return new URLSearchParams(window.location.search).get("resetToken")?.trim() ?? "";
 }
-
 function clearResetTokenFromLocation(): void {
-  /**
-   * Purpose: Removes the password-reset token query parameter from the browser URL without reloading.
-   * Inputs: Current browser URL.
-   * Outputs: No return value; mutates browser history state.
-   */
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const url = new URL(window.location.href);
-  url.searchParams.delete("resetToken");
-  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    if (typeof window === "undefined") {
+        return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete("resetToken");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
 }
-
 function createExpertDraft(): ExpertDraft {
-  /**
-   * Purpose: Creates one expert draft row with a stable client-side id for React keying.
-   * Inputs: None.
-   * Outputs: Blank expert draft object with deterministic incremental id.
-   */
-  expertDraftCounter += 1;
-
-  return {
-    id: `draft-${expertDraftCounter}`,
-    expertId: null,
-    name: "",
-    specialization: "",
-    soul: ""
-  };
+    expertDraftCounter += 1;
+    return {
+        id: `draft-${expertDraftCounter}`,
+        expertId: null,
+        name: "",
+        specialization: "",
+        soul: ""
+    };
 }
-
 function createExpertDraftFromPanelExpert(expert: PanelExpertView): ExpertDraft {
-  /**
-   * Purpose: Converts a persisted panel expert into editable dashboard draft state.
-   * Inputs: Panel expert record loaded from the API.
-   * Outputs: Expert draft with stable client key plus persisted expert id.
-   */
-  return {
-    id: `expert-${expert.id}`,
-    expertId: expert.id,
-    name: expert.name,
-    specialization: expert.specialization,
-    soul: expert.soul
-  };
+    return {
+        id: `expert-${expert.id}`,
+        expertId: expert.id,
+        name: expert.name,
+        specialization: expert.specialization,
+        soul: expert.soul
+    };
 }
-
 async function requestJson<T>(args: {
-  path: string;
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
-  accessToken?: string;
-  body?: unknown;
+    path: string;
+    method?: "GET" | "POST" | "PATCH" | "DELETE";
+    accessToken?: string;
+    body?: unknown;
 }): Promise<T> {
-  /**
-   * Purpose: Sends JSON requests to internal API routes with optional bearer auth and typed response parsing.
-   * Inputs: Route path, HTTP method, optional access token, and optional JSON body.
-   * Outputs: Parsed success payload or thrown error message from failed responses.
-   */
-  const headers: Record<string, string> = {};
-  if (args.body !== undefined) {
-    headers["Content-Type"] = "application/json";
-  }
-  if (args.accessToken) {
-    headers.Authorization = `Bearer ${args.accessToken}`;
-  }
-
-  const response = await fetch(args.path, {
-    method: args.method ?? "GET",
-    headers,
-    body: args.body !== undefined ? JSON.stringify(args.body) : undefined
-  });
-  const payload = (await response.json().catch(() => ({}))) as T | ApiErrorShape;
-
-  if (!response.ok) {
-    const message =
-      typeof payload === "object" &&
-      payload !== null &&
-      "error" in payload &&
-      typeof payload.error === "string"
-        ? payload.error
-        : `Request failed (${response.status}).`;
-    throw new Error(message);
-  }
-
-  return payload as T;
+    const headers: Record<string, string> = {};
+    if (args.body !== undefined) {
+        headers["Content-Type"] = "application/json";
+    }
+    if (args.accessToken) {
+        headers.Authorization = `Bearer ${args.accessToken}`;
+    }
+    const response = await fetch(args.path, {
+        method: args.method ?? "GET",
+        headers,
+        body: args.body !== undefined ? JSON.stringify(args.body) : undefined
+    });
+    const payload = (await response.json().catch(() => ({}))) as T | ApiErrorShape;
+    if (!response.ok) {
+        const message = typeof payload === "object" &&
+            payload !== null &&
+            "error" in payload &&
+            typeof payload.error === "string"
+            ? payload.error
+            : `Request failed (${response.status}).`;
+        throw new Error(message);
+    }
+    return payload as T;
 }
-
 function readStoredAuth(): AuthSuccess | null {
-  /**
-   * Purpose: Reads persisted auth payload from localStorage for automatic client-side session resume.
-   * Inputs: None.
-   * Outputs: Parsed auth payload or null when missing/invalid.
-   */
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(raw) as AuthSuccess;
-  } catch {
-    return null;
-  }
+    if (typeof window === "undefined") {
+        return null;
+    }
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) {
+        return null;
+    }
+    try {
+        return JSON.parse(raw) as AuthSuccess;
+    }
+    catch {
+        return null;
+    }
 }
-
 function writeStoredAuth(auth: AuthSuccess | null): void {
-  /**
-   * Purpose: Persists or clears auth payload in localStorage.
-   * Inputs: Auth payload or null to clear.
-   * Outputs: No return value; localStorage side effect.
-   */
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  if (!auth) {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    return;
-  }
-
-  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(auth));
+    if (typeof window === "undefined") {
+        return;
+    }
+    if (!auth) {
+        window.localStorage.removeItem(AUTH_STORAGE_KEY);
+        return;
+    }
+    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(auth));
 }
-
 export default function HomePage() {
-  /**
-   * Purpose: Hosts dashboard controls: auth, password reset, account deletion, and panel create/select/edit/delete management.
-   * Inputs: None.
-   * Outputs: Home page JSX with form handlers wired to account/panel API routes.
-   */
-  const router = useRouter();
-  const [auth, setAuth] = useState<AuthSuccess | null>(null);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
-  const [resetToken, setResetToken] = useState("");
-  const [resetPasswordValue, setResetPasswordValue] = useState("");
-  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
-  const [isPasswordResetOpen, setIsPasswordResetOpen] = useState(false);
-  const [developmentResetUrl, setDevelopmentResetUrl] = useState("");
-
-  const [panels, setPanels] = useState<PanelView[]>([]);
-  const [activePanel, setActivePanel] = useState<PanelView | null>(null);
-  const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
-  const [newPanelName, setNewPanelName] = useState("");
-  const [newPanelDescription, setNewPanelDescription] = useState("");
-  const [newPanelInstructions, setNewPanelInstructions] = useState("");
-  const [editPanelName, setEditPanelName] = useState("");
-  const [editPanelDescription, setEditPanelDescription] = useState("");
-  const [editPanelInstructions, setEditPanelInstructions] = useState("");
-  const [expertDrafts, setExpertDrafts] = useState<ExpertDraft[]>([createExpertDraft()]);
-  const [editExpertDrafts, setEditExpertDrafts] = useState<ExpertDraft[]>([]);
-
-  const [statusMessage, setStatusMessage] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
-  const [isBusy, setIsBusy] = useState(false);
-
-  const clearSignedInState = useCallback((status: string, error: string): void => {
-    /**
-     * Purpose: Clears all signed-in dashboard state and optionally leaves a UI message behind.
-     * Inputs: Next status message and next error message.
-     * Outputs: No return value; resets session/panel/editor state.
-     */
-    setAuth(null);
-    setPanels([]);
-    setActivePanel(null);
-    setIsCreatePanelOpen(false);
-    resetCreatePanelForm();
-    writeStoredAuth(null);
-    setStatusMessage(status);
-    setErrorMessage(error);
-  }, []);
-
-  const clearSessionForExpiredToken = useCallback((message: string): void => {
-    /**
-     * Purpose: Clears all authenticated client state and returns UI to login mode after token expiry.
-     * Inputs: User-facing auth-expiry error message.
-     * Outputs: No return value; resets session state and persists signed-out storage state.
-     */
-    clearSignedInState("", message);
-  }, [clearSignedInState]);
-
-  const handleApiError = useCallback((error: unknown, fallbackMessage: string): void => {
-    /**
-     * Purpose: Normalizes request errors and enforces token-expiry logout behavior.
-     * Inputs: Unknown thrown error and fallback message.
-     * Outputs: No return value; updates error/session state.
-     */
-    const message = error instanceof Error ? error.message : fallbackMessage;
-    if (message === INVALID_ACCESS_TOKEN_MESSAGE) {
-      clearSessionForExpiredToken(message);
-      return;
-    }
-
-    setErrorMessage(message);
-  }, [clearSessionForExpiredToken]);
-
-  async function loadPanels(accessToken: string): Promise<void> {
-    /**
-     * Purpose: Loads account-owned panel list from API and updates local state.
-     * Inputs: Bearer access token.
-     * Outputs: No return value; updates panel list state.
-     */
-    const listedPanels = await requestJson<PanelView[]>({
-      path: "/api/panels",
-      method: "GET",
-      accessToken
-    });
-    setPanels(listedPanels);
-  }
-
-  useEffect(() => {
-    /**
-     * Purpose: Restores persisted auth and panel list once when page mounts.
-     * Inputs: None.
-     * Outputs: No return value; may hydrate auth/panel state.
-     */
-    const stored = readStoredAuth();
-    if (!stored) {
-      return;
-    }
-
-    setAuth(stored);
-    void loadPanels(stored.accessToken).catch((error: unknown) => {
-      handleApiError(error, "Failed to load panels.");
-    });
-  }, [handleApiError]);
-
-  useEffect(() => {
-    /**
-     * Purpose: Auto-opens the reset-password UI when a reset token is present in the URL.
-     * Inputs: Auth state and current browser query string.
-     * Outputs: No return value; seeds reset-token state for login-screen recovery flows.
-     */
-    if (auth || readStoredAuth()) {
-      return;
-    }
-
-    const token = readResetTokenFromLocation();
-    if (!token) {
-      return;
-    }
-
-    setResetToken(token);
-    setIsPasswordResetOpen(true);
-    setStatusMessage("Reset link loaded. Enter your new password.");
-    setErrorMessage("");
-  }, [auth]);
-
-  useEffect(() => {
-    /**
-     * Purpose: Keeps edit-panel form fields synchronized with the currently selected panel.
-     * Inputs: Active panel value from selection/create/update flows.
-     * Outputs: No return value; updates edit-panel field state.
-     */
-    if (!activePanel) {
-      setEditPanelName("");
-      setEditPanelDescription("");
-      setEditPanelInstructions("");
-      setEditExpertDrafts([]);
-      return;
-    }
-
-    setEditPanelName(activePanel.name);
-    setEditPanelDescription(activePanel.description ?? "");
-    setEditPanelInstructions(activePanel.instructions ?? "");
-    setEditExpertDrafts(
-      activePanel.experts.length > 0
-        ? activePanel.experts.map((expert) => createExpertDraftFromPanelExpert(expert))
-        : [createExpertDraft()]
-    );
-  }, [activePanel]);
-
-  function resetCreatePanelForm(): void {
-    /**
-     * Purpose: Clears create-panel draft fields and restores a single blank expert row.
-     * Inputs: None.
-     * Outputs: No return value; resets create-panel form state.
-     */
-    setNewPanelName("");
-    setNewPanelDescription("");
-    setNewPanelInstructions("");
-    setExpertDrafts([createExpertDraft()]);
-  }
-
-  function handleToggleCreatePanel(): void {
-    /**
-     * Purpose: Toggles the create-panel section while collapsing any open panel editor.
-     * Inputs: None.
-     * Outputs: No return value; updates create/edit visibility state.
-     */
-    setActivePanel(null);
-    setIsCreatePanelOpen((current) => !current);
-    setStatusMessage("");
-    setErrorMessage("");
-  }
-
-  function resetPasswordResetForm(): void {
-    /**
-     * Purpose: Clears password-reset request/confirmation drafts and removes any dev/reset-link residue.
-     * Inputs: None.
-     * Outputs: No return value; resets password-reset UI state.
-     */
-    setForgotPasswordEmail("");
-    setResetToken("");
-    setResetPasswordValue("");
-    setResetPasswordConfirm("");
-    setDevelopmentResetUrl("");
-    clearResetTokenFromLocation();
-  }
-
-  async function submitAuth(mode: "register" | "login"): Promise<void> {
-    /**
-     * Purpose: Submits register/login requests and persists auth session for subsequent API calls.
-     * Inputs: Auth mode selected by the user.
-     * Outputs: No return value; updates auth and panel states on success.
-     */
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-
-    try {
-      const result = await requestJson<AuthSuccess>({
-        path: mode === "register" ? "/api/auth/register" : "/api/auth/login",
-        method: "POST",
-        body: {
-          email,
-          password
+    const router = useRouter();
+    const [auth, setAuth] = useState<AuthSuccess | null>(null);
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
+    const [resetToken, setResetToken] = useState("");
+    const [resetPasswordValue, setResetPasswordValue] = useState("");
+    const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
+    const [isPasswordResetOpen, setIsPasswordResetOpen] = useState(false);
+    const [developmentResetUrl, setDevelopmentResetUrl] = useState("");
+    const [isDeleteAccountDialogOpen, setIsDeleteAccountDialogOpen] = useState(false);
+    const [deleteAccountConfirmEmail, setDeleteAccountConfirmEmail] = useState("");
+    const [deleteAccountCurrentPassword, setDeleteAccountCurrentPassword] = useState("");
+    const [panels, setPanels] = useState<PanelView[]>([]);
+    const [activePanel, setActivePanel] = useState<PanelView | null>(null);
+    const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
+    const [newPanelName, setNewPanelName] = useState("");
+    const [newPanelDescription, setNewPanelDescription] = useState("");
+    const [newPanelInstructions, setNewPanelInstructions] = useState("");
+    const [editPanelName, setEditPanelName] = useState("");
+    const [editPanelDescription, setEditPanelDescription] = useState("");
+    const [editPanelInstructions, setEditPanelInstructions] = useState("");
+    const [expertDrafts, setExpertDrafts] = useState<ExpertDraft[]>([createExpertDraft()]);
+    const [editExpertDrafts, setEditExpertDrafts] = useState<ExpertDraft[]>([]);
+    const [statusMessage, setStatusMessage] = useState("");
+    const [errorMessage, setErrorMessage] = useState("");
+    const [isBusy, setIsBusy] = useState(false);
+    const clearSignedInState = useCallback((status: string, error: string): void => {
+        setAuth(null);
+        setPanels([]);
+        setActivePanel(null);
+        setIsCreatePanelOpen(false);
+        resetCreatePanelForm();
+        resetDeleteAccountForm();
+        writeStoredAuth(null);
+        setStatusMessage(status);
+        setErrorMessage(error);
+    }, []);
+    const clearSessionForExpiredToken = useCallback((message: string): void => {
+        clearSignedInState("", message);
+    }, [clearSignedInState]);
+    const handleApiError = useCallback((error: unknown, fallbackMessage: string): void => {
+        const message = error instanceof Error ? error.message : fallbackMessage;
+        if (message === INVALID_ACCESS_TOKEN_MESSAGE) {
+            clearSessionForExpiredToken(message);
+            return;
         }
-      });
-
-      setAuth(result);
-      writeStoredAuth(result);
-      await loadPanels(result.accessToken);
-      setActivePanel(null);
-      setIsCreatePanelOpen(false);
-      resetCreatePanelForm();
-      resetPasswordResetForm();
-      setIsPasswordResetOpen(false);
-      setStatusMessage(mode === "register" ? "Account created and signed in." : "Signed in.");
-      setPassword("");
-    } catch (error) {
-      handleApiError(error, "Auth request failed.");
-    } finally {
-      setIsBusy(false);
+        setErrorMessage(message);
+    }, [clearSessionForExpiredToken]);
+    async function loadPanels(accessToken: string): Promise<void> {
+        const listedPanels = await requestJson<PanelView[]>({
+            path: "/api/panels",
+            method: "GET",
+            accessToken
+        });
+        setPanels(listedPanels);
     }
-  }
-
-  function handleAuthFormSubmit(event: FormEvent<HTMLFormElement>): void {
-    /**
-     * Purpose: Handles Enter-key auth submit by using login as the default action.
-     * Inputs: Submitted auth form event.
-     * Outputs: No return value; triggers login flow.
-     */
-    event.preventDefault();
-    void submitAuth("login");
-  }
-
-  function handleLogout(): void {
-    /**
-     * Purpose: Clears local auth/session state to return UI to signed-out mode.
-     * Inputs: None.
-     * Outputs: No return value; clears auth-related state.
-     */
-    clearSignedInState("Signed out.", "");
-  }
-
-  async function handleRequestPasswordReset(event: FormEvent<HTMLFormElement>): Promise<void> {
-    /**
-     * Purpose: Requests a one-time password-reset link for the supplied email address.
-     * Inputs: Submitted forgot-password form event.
-     * Outputs: No return value; updates reset-help state and status messaging.
-     */
-    event.preventDefault();
-    setStatusMessage("");
-    setErrorMessage("");
-    setDevelopmentResetUrl("");
-    setIsBusy(true);
-
-    try {
-      const result = await requestJson<PasswordResetRequestResponse>({
-        path: "/api/auth/forgot-password",
-        method: "POST",
-        body: {
-          email: forgotPasswordEmail
+    useEffect(() => {
+        const stored = readStoredAuth();
+        if (!stored) {
+            return;
         }
-      });
-
-      if (result.developmentResetUrl) {
-        const token = new URL(result.developmentResetUrl).searchParams.get("resetToken") ?? "";
-        setDevelopmentResetUrl(result.developmentResetUrl);
+        setAuth(stored);
+        void loadPanels(stored.accessToken).catch((error: unknown) => {
+            handleApiError(error, "Failed to load panels.");
+        });
+    }, [handleApiError]);
+    useEffect(() => {
+        if (auth || readStoredAuth()) {
+            return;
+        }
+        const token = readResetTokenFromLocation();
+        if (!token) {
+            return;
+        }
         setResetToken(token);
-      }
-
-      setIsPasswordResetOpen(true);
-      setStatusMessage(
-        result.developmentResetUrl
-          ? "Password reset link generated for local testing."
-          : "If an account exists for that email, a password reset link has been sent."
-      );
-    } catch (error) {
-      handleApiError(error, "Failed to request password reset.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleResetPassword(event: FormEvent<HTMLFormElement>): Promise<void> {
-    /**
-     * Purpose: Applies a new password from a one-time reset token and prepares the user to log in again.
-     * Inputs: Submitted reset-password form event.
-     * Outputs: No return value; updates login/reset state on success.
-     */
-    event.preventDefault();
-
-    if (resetPasswordValue !== resetPasswordConfirm) {
-      setStatusMessage("");
-      setErrorMessage("Passwords do not match.");
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-
-    try {
-      const result = await requestJson<PasswordResetResponse>({
-        path: "/api/auth/reset-password",
-        method: "POST",
-        body: {
-          token: resetToken,
-          password: resetPasswordValue,
-          confirmPassword: resetPasswordConfirm
+        setIsPasswordResetOpen(true);
+        setStatusMessage("Reset link loaded. Enter your new password.");
+        setErrorMessage("");
+    }, [auth]);
+    useEffect(() => {
+        if (!activePanel) {
+            setEditPanelName("");
+            setEditPanelDescription("");
+            setEditPanelInstructions("");
+            setEditExpertDrafts([]);
+            return;
         }
-      });
-
-      setEmail(result.account.email);
-      setPassword("");
-      resetPasswordResetForm();
-      setIsPasswordResetOpen(false);
-      setStatusMessage("Password reset. You can log in with your new password.");
-    } catch (error) {
-      handleApiError(error, "Failed to reset password.");
-    } finally {
-      setIsBusy(false);
+        setEditPanelName(activePanel.name);
+        setEditPanelDescription(activePanel.description ?? "");
+        setEditPanelInstructions(activePanel.instructions ?? "");
+        setEditExpertDrafts(activePanel.experts.length > 0
+            ? activePanel.experts.map((expert) => createExpertDraftFromPanelExpert(expert))
+            : [createExpertDraft()]);
+    }, [activePanel]);
+    function resetCreatePanelForm(): void {
+        setNewPanelName("");
+        setNewPanelDescription("");
+        setNewPanelInstructions("");
+        setExpertDrafts([createExpertDraft()]);
     }
-  }
-
-  async function handleDeleteAccount(): Promise<void> {
-    /**
-     * Purpose: Deletes the signed-in account and all owned data after explicit email confirmation.
-     * Inputs: None.
-     * Outputs: No return value; clears signed-in state when deletion succeeds.
-     */
-    if (!auth) {
-      return;
+    function handleToggleCreatePanel(): void {
+        setActivePanel(null);
+        setIsCreatePanelOpen((current) => !current);
+        setStatusMessage("");
+        setErrorMessage("");
     }
-
-    const confirmation = window.prompt(
-      `Type ${auth.account.email} to permanently delete your account, panels, conversations, prompts, and responses.`
-    );
-    if (confirmation === null) {
-      return;
+    function resetPasswordResetForm(): void {
+        setForgotPasswordEmail("");
+        setResetToken("");
+        setResetPasswordValue("");
+        setResetPasswordConfirm("");
+        setDevelopmentResetUrl("");
+        clearResetTokenFromLocation();
     }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      await requestJson<DeletedAccount>({
-        path: "/api/account",
-        method: "DELETE",
-        accessToken: auth.accessToken,
-        body: {
-          confirmEmail: confirmation
+    function resetDeleteAccountForm(): void {
+        setIsDeleteAccountDialogOpen(false);
+        setDeleteAccountConfirmEmail("");
+        setDeleteAccountCurrentPassword("");
+    }
+    function openDeleteAccountDialog(): void {
+        resetDeleteAccountForm();
+        setStatusMessage("");
+        setErrorMessage("");
+        setIsDeleteAccountDialogOpen(true);
+    }
+    function closeDeleteAccountDialog(): void {
+        resetDeleteAccountForm();
+    }
+    async function submitAuth(mode: "register" | "login"): Promise<void> {
+        setStatusMessage("");
+        setErrorMessage("");
+        setIsBusy(true);
+        try {
+            const result = await requestJson<AuthSuccess>({
+                path: mode === "register" ? "/api/auth/register" : "/api/auth/login",
+                method: "POST",
+                body: {
+                    email,
+                    password
+                }
+            });
+            setAuth(result);
+            writeStoredAuth(result);
+            await loadPanels(result.accessToken);
+            setActivePanel(null);
+            setIsCreatePanelOpen(false);
+            resetCreatePanelForm();
+            resetPasswordResetForm();
+            setIsPasswordResetOpen(false);
+            setStatusMessage(mode === "register" ? "Account created and signed in." : "Signed in.");
+            setPassword("");
         }
-      });
-      setEmail("");
-      setPassword("");
-      clearSignedInState("Account deleted.", "");
-    } catch (error) {
-      handleApiError(error, "Failed to delete account.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleSelectPanel(panelId: number): Promise<void> {
-    /**
-     * Purpose: Loads full panel detail and toggles it as the active inline editor on the dashboard.
-     * Inputs: Panel id from edit-button click.
-     * Outputs: No return value; updates active panel state.
-     */
-    if (!auth) {
-      return;
-    }
-
-    if (activePanel?.id === panelId) {
-      setActivePanel(null);
-      setStatusMessage("");
-      setErrorMessage("");
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsCreatePanelOpen(false);
-    setIsBusy(true);
-    try {
-      const panel = await requestJson<PanelView>({
-        path: `/api/panels/${panelId}`,
-        method: "GET",
-        accessToken: auth.accessToken
-      });
-      setActivePanel(panel);
-      setStatusMessage(`Selected panel: ${panel.name}`);
-    } catch (error) {
-      handleApiError(error, "Failed to load panel.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  function handleExpertDraftChange(
-    index: number,
-    key: "name" | "specialization" | "soul",
-    value: string
-  ): void {
-    /**
-     * Purpose: Updates one expert draft row field in create-panel form state.
-     * Inputs: Expert row index, field key, and next value.
-     * Outputs: No return value; updates expert draft list state.
-     */
-    setExpertDrafts((current) =>
-      current.map((draft, draftIndex) =>
-        draftIndex === index ? { ...draft, [key]: value } : draft
-      )
-    );
-  }
-
-  function addExpertDraft(): void {
-    /**
-     * Purpose: Appends a blank expert row to the create-panel form.
-     * Inputs: None.
-     * Outputs: No return value; updates expert draft list state.
-     */
-    setExpertDrafts((current) => [...current, createExpertDraft()]);
-  }
-
-  function handleEditExpertDraftChange(
-    index: number,
-    key: "name" | "specialization" | "soul",
-    value: string
-  ): void {
-    /**
-     * Purpose: Updates one expert draft row field in edit-panel form state.
-     * Inputs: Expert row index, field key, and next value.
-     * Outputs: No return value; updates edit expert draft list state.
-     */
-    setEditExpertDrafts((current) =>
-      current.map((draft, draftIndex) =>
-        draftIndex === index ? { ...draft, [key]: value } : draft
-      )
-    );
-  }
-
-  function addEditExpertDraft(): void {
-    /**
-     * Purpose: Appends a blank expert row to the edit-panel form.
-     * Inputs: None.
-     * Outputs: No return value; updates edit expert draft list state.
-     */
-    setEditExpertDrafts((current) => [...current, createExpertDraft()]);
-  }
-
-  function removeExpertDraft(index: number): void {
-    /**
-     * Purpose: Removes one expert row from create-panel form while enforcing at least one expert row.
-     * Inputs: Expert row index to remove.
-     * Outputs: No return value; updates expert draft list state.
-     */
-    setExpertDrafts((current) => {
-      if (current.length <= 1) {
-        return current;
-      }
-
-      return current.filter((_, draftIndex) => draftIndex !== index);
-    });
-  }
-
-  function removeEditExpertDraft(index: number): void {
-    /**
-     * Purpose: Removes one expert row from the edit-panel form while enforcing at least one expert row.
-     * Inputs: Expert row index to remove.
-     * Outputs: No return value; updates edit expert draft list state.
-     */
-    setEditExpertDrafts((current) => {
-      if (current.length <= 1) {
-        return current;
-      }
-
-      return current.filter((_, draftIndex) => draftIndex !== index);
-    });
-  }
-
-  async function handleCreatePanel(event: FormEvent<HTMLFormElement>): Promise<void> {
-    /**
-     * Purpose: Creates a panel with nested experts, refreshes panel list, and selects created panel.
-     * Inputs: Submitted create-panel form event.
-     * Outputs: No return value; updates panel states and status message.
-     */
-    event.preventDefault();
-    if (!auth) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      const created = await requestJson<PanelView>({
-        path: "/api/panels",
-        method: "POST",
-        accessToken: auth.accessToken,
-        body: {
-          name: newPanelName,
-          description: newPanelDescription.length > 0 ? newPanelDescription : null,
-          instructions: newPanelInstructions.length > 0 ? newPanelInstructions : null,
-          experts: expertDrafts.map((expert) => ({
-            name: expert.name,
-            specialization: expert.specialization,
-            soul: expert.soul
-          }))
+        catch (error) {
+            handleApiError(error, "Auth request failed.");
         }
-      });
-
-      await loadPanels(auth.accessToken);
-      setActivePanel(null);
-      setIsCreatePanelOpen(false);
-      resetCreatePanelForm();
-      setStatusMessage(`Created panel: ${created.name}`);
-    } catch (error) {
-      handleApiError(error, "Failed to create panel.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleUpdateActivePanel(event: FormEvent<HTMLFormElement>): Promise<void> {
-    /**
-     * Purpose: Updates active panel metadata, refreshes the panel list, and closes the inline editor.
-     * Inputs: Submitted edit-panel form event.
-     * Outputs: No return value; updates dashboard state and status text.
-     */
-    event.preventDefault();
-    if (!auth || !activePanel) {
-      return;
-    }
-
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      const updatedPanel = await requestJson<PanelView>({
-        path: `/api/panels/${activePanel.id}`,
-        method: "PATCH",
-        accessToken: auth.accessToken,
-        body: {
-          name: editPanelName,
-          description: editPanelDescription.length > 0 ? editPanelDescription : null,
-          instructions: editPanelInstructions.length > 0 ? editPanelInstructions : null,
-          experts: editExpertDrafts.map((expert) => ({
-            ...(expert.expertId !== null ? { id: expert.expertId } : {}),
-            name: expert.name,
-            specialization: expert.specialization,
-            soul: expert.soul
-          }))
+        finally {
+            setIsBusy(false);
         }
-      });
-      await loadPanels(auth.accessToken);
-      setActivePanel(null);
-      setStatusMessage(`Updated panel: ${updatedPanel.name}.`);
-    } catch (error) {
-      handleApiError(error, "Failed to update panel.");
-    } finally {
-      setIsBusy(false);
     }
-  }
-
-  async function handleDeleteActivePanel(): Promise<void> {
-    /**
-     * Purpose: Deletes active panel after confirmation and clears dependent UI state.
-     * Inputs: None.
-     * Outputs: No return value; updates panel state after delete.
-     */
-    if (!auth || !activePanel) {
-      return;
+    function handleAuthFormSubmit(event: FormEvent<HTMLFormElement>): void {
+        event.preventDefault();
+        void submitAuth("login");
     }
-
-    if (!window.confirm(`Delete panel "${activePanel.name}" and all its conversations?`)) {
-      return;
+    function handleLogout(): void {
+        clearSignedInState("Signed out.", "");
     }
-
-    const deletedPanelName = activePanel.name;
-    setStatusMessage("");
-    setErrorMessage("");
-    setIsBusy(true);
-    try {
-      await requestJson<{ id: number }>({
-        path: `/api/panels/${activePanel.id}`,
-        method: "DELETE",
-        accessToken: auth.accessToken
-      });
-      setActivePanel(null);
-      await loadPanels(auth.accessToken);
-      setStatusMessage(`Deleted panel: ${deletedPanelName}.`);
-    } catch (error) {
-      handleApiError(error, "Failed to delete panel.");
-    } finally {
-      setIsBusy(false);
+    async function handleRequestPasswordReset(event: FormEvent<HTMLFormElement>): Promise<void> {
+        event.preventDefault();
+        setStatusMessage("");
+        setErrorMessage("");
+        setDevelopmentResetUrl("");
+        setIsBusy(true);
+        try {
+            const result = await requestJson<PasswordResetRequestResponse>({
+                path: "/api/auth/forgot-password",
+                method: "POST",
+                body: {
+                    email: forgotPasswordEmail
+                }
+            });
+            if (result.developmentResetUrl) {
+                const token = new URL(result.developmentResetUrl).searchParams.get("resetToken") ?? "";
+                setDevelopmentResetUrl(result.developmentResetUrl);
+                setResetToken(token);
+            }
+            setIsPasswordResetOpen(true);
+            setStatusMessage(result.developmentResetUrl
+                ? "Password reset link generated for local testing."
+                : "If an account exists for that email, a password reset link has been sent.");
+        }
+        catch (error) {
+            handleApiError(error, "Failed to request password reset.");
+        }
+        finally {
+            setIsBusy(false);
+        }
     }
-  }
-
-  return (
-    <main className="page">
+    async function handleResetPassword(event: FormEvent<HTMLFormElement>): Promise<void> {
+        event.preventDefault();
+        if (resetPasswordValue !== resetPasswordConfirm) {
+            setStatusMessage("");
+            setErrorMessage("Passwords do not match.");
+            return;
+        }
+        setStatusMessage("");
+        setErrorMessage("");
+        setIsBusy(true);
+        try {
+            const result = await requestJson<PasswordResetResponse>({
+                path: "/api/auth/reset-password",
+                method: "POST",
+                body: {
+                    token: resetToken,
+                    password: resetPasswordValue,
+                    confirmPassword: resetPasswordConfirm
+                }
+            });
+            setEmail(result.account.email);
+            setPassword("");
+            resetPasswordResetForm();
+            setIsPasswordResetOpen(false);
+            setStatusMessage("Password reset. You can log in with your new password.");
+        }
+        catch (error) {
+            handleApiError(error, "Failed to reset password.");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    }
+    async function handleDeleteAccount(event: FormEvent<HTMLFormElement>): Promise<void> {
+        event.preventDefault();
+        if (!auth) {
+            return;
+        }
+        setStatusMessage("");
+        setErrorMessage("");
+        setIsBusy(true);
+        try {
+            await requestJson<DeletedAccount>({
+                path: "/api/account",
+                method: "POST",
+                accessToken: auth.accessToken,
+                body: {
+                    confirmEmail: deleteAccountConfirmEmail,
+                    currentPassword: deleteAccountCurrentPassword
+                }
+            });
+            setEmail("");
+            setPassword("");
+            resetDeleteAccountForm();
+            clearSignedInState("Account deleted.", "");
+        }
+        catch (error) {
+            handleApiError(error, "Failed to delete account.");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    }
+    async function handleSelectPanel(panelId: number): Promise<void> {
+        if (!auth) {
+            return;
+        }
+        if (activePanel?.id === panelId) {
+            setActivePanel(null);
+            setStatusMessage("");
+            setErrorMessage("");
+            return;
+        }
+        setStatusMessage("");
+        setErrorMessage("");
+        setIsCreatePanelOpen(false);
+        setIsBusy(true);
+        try {
+            const panel = await requestJson<PanelView>({
+                path: `/api/panels/${panelId}`,
+                method: "GET",
+                accessToken: auth.accessToken
+            });
+            setActivePanel(panel);
+            setStatusMessage(`Selected panel: ${panel.name}`);
+        }
+        catch (error) {
+            handleApiError(error, "Failed to load panel.");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    }
+    function handleExpertDraftChange(index: number, key: "name" | "specialization" | "soul", value: string): void {
+        setExpertDrafts((current) => current.map((draft, draftIndex) => draftIndex === index ? { ...draft, [key]: value } : draft));
+    }
+    function addExpertDraft(): void {
+        setExpertDrafts((current) => [...current, createExpertDraft()]);
+    }
+    function handleEditExpertDraftChange(index: number, key: "name" | "specialization" | "soul", value: string): void {
+        setEditExpertDrafts((current) => current.map((draft, draftIndex) => draftIndex === index ? { ...draft, [key]: value } : draft));
+    }
+    function addEditExpertDraft(): void {
+        setEditExpertDrafts((current) => [...current, createExpertDraft()]);
+    }
+    function removeExpertDraft(index: number): void {
+        setExpertDrafts((current) => {
+            if (current.length <= 1) {
+                return current;
+            }
+            return current.filter((_, draftIndex) => draftIndex !== index);
+        });
+    }
+    function removeEditExpertDraft(index: number): void {
+        setEditExpertDrafts((current) => {
+            if (current.length <= 1) {
+                return current;
+            }
+            return current.filter((_, draftIndex) => draftIndex !== index);
+        });
+    }
+    async function handleCreatePanel(event: FormEvent<HTMLFormElement>): Promise<void> {
+        event.preventDefault();
+        if (!auth) {
+            return;
+        }
+        setStatusMessage("");
+        setErrorMessage("");
+        setIsBusy(true);
+        try {
+            const created = await requestJson<PanelView>({
+                path: "/api/panels",
+                method: "POST",
+                accessToken: auth.accessToken,
+                body: {
+                    name: newPanelName,
+                    description: newPanelDescription.length > 0 ? newPanelDescription : null,
+                    instructions: newPanelInstructions.length > 0 ? newPanelInstructions : null,
+                    experts: expertDrafts.map((expert) => ({
+                        name: expert.name,
+                        specialization: expert.specialization,
+                        soul: expert.soul
+                    }))
+                }
+            });
+            await loadPanels(auth.accessToken);
+            setActivePanel(null);
+            setIsCreatePanelOpen(false);
+            resetCreatePanelForm();
+            setStatusMessage(`Created panel: ${created.name}`);
+        }
+        catch (error) {
+            handleApiError(error, "Failed to create panel.");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    }
+    async function handleUpdateActivePanel(event: FormEvent<HTMLFormElement>): Promise<void> {
+        event.preventDefault();
+        if (!auth || !activePanel) {
+            return;
+        }
+        setStatusMessage("");
+        setErrorMessage("");
+        setIsBusy(true);
+        try {
+            const updatedPanel = await requestJson<PanelView>({
+                path: `/api/panels/${activePanel.id}`,
+                method: "PATCH",
+                accessToken: auth.accessToken,
+                body: {
+                    name: editPanelName,
+                    description: editPanelDescription.length > 0 ? editPanelDescription : null,
+                    instructions: editPanelInstructions.length > 0 ? editPanelInstructions : null,
+                    experts: editExpertDrafts.map((expert) => ({
+                        ...(expert.expertId !== null ? { id: expert.expertId } : {}),
+                        name: expert.name,
+                        specialization: expert.specialization,
+                        soul: expert.soul
+                    }))
+                }
+            });
+            await loadPanels(auth.accessToken);
+            setActivePanel(null);
+            setStatusMessage(`Updated panel: ${updatedPanel.name}.`);
+        }
+        catch (error) {
+            handleApiError(error, "Failed to update panel.");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    }
+    async function handleDeleteActivePanel(): Promise<void> {
+        if (!auth || !activePanel) {
+            return;
+        }
+        if (!window.confirm(`Delete panel "${activePanel.name}" and all its conversations?`)) {
+            return;
+        }
+        const deletedPanelName = activePanel.name;
+        setStatusMessage("");
+        setErrorMessage("");
+        setIsBusy(true);
+        try {
+            await requestJson<{
+                id: number;
+            }>({
+                path: `/api/panels/${activePanel.id}`,
+                method: "DELETE",
+                accessToken: auth.accessToken
+            });
+            setActivePanel(null);
+            await loadPanels(auth.accessToken);
+            setStatusMessage(`Deleted panel: ${deletedPanelName}.`);
+        }
+        catch (error) {
+            handleApiError(error, "Failed to delete panel.");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    }
+    return (<main className="page">
       <header className="hero">
-        {auth ? (
-          <div className="auth-summary">
+        {auth ? (<div className="auth-summary">
             <p>
               Signed in as <strong>{auth.account.email}</strong>
             </p>
@@ -818,17 +571,11 @@ export default function HomePage() {
               <button type="button" onClick={handleLogout} disabled={isBusy}>
                 Logout
               </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => void handleDeleteAccount()}
-                disabled={isBusy}
-              >
+              <button type="button" className="danger" onClick={openDeleteAccountDialog} disabled={isBusy}>
                 Delete Account
               </button>
             </div>
-          </div>
-        ) : null}
+          </div>) : null}
         <div className="hero-copy">
           <h1>Panel of Experts</h1>
           <p>
@@ -838,11 +585,43 @@ export default function HomePage() {
         </div>
       </header>
 
+      {auth && isDeleteAccountDialogOpen ? (<div className="modal-backdrop" onClick={closeDeleteAccountDialog}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-account-title" onClick={(event) => event.stopPropagation()}>
+            <div className="section-copy compact-copy">
+              <h2 id="delete-account-title">Delete Account</h2>
+              <p>
+                This permanently deletes your account, panels, conversations, prompts, and
+                responses.
+              </p>
+              <p>
+                Type <strong>{auth.account.email}</strong> and your current password to confirm.
+              </p>
+            </div>
+            <form className="modal-form" onSubmit={(event) => void handleDeleteAccount(event)}>
+              <label>
+                Confirm Email
+                <input value={deleteAccountConfirmEmail} onChange={(event) => setDeleteAccountConfirmEmail(event.target.value)} type="email" autoComplete="email" required/>
+              </label>
+              <label>
+                Current Password
+                <input value={deleteAccountCurrentPassword} onChange={(event) => setDeleteAccountCurrentPassword(event.target.value)} type="password" autoComplete="current-password" required/>
+              </label>
+              <div className="modal-actions">
+                <button type="button" className="secondary-button" onClick={closeDeleteAccountDialog}>
+                  Cancel
+                </button>
+                <button type="submit" className="danger" disabled={isBusy}>
+                  Delete Account
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>) : null}
+
       {statusMessage ? <p className="status">{statusMessage}</p> : null}
       {errorMessage ? <p className="error">{errorMessage}</p> : null}
 
-      {!auth ? (
-        <section className="card auth-card">
+      {!auth ? (<section className="card auth-card">
           <div className="section-copy">
             <h2>Authentication</h2>
             <p>Sign in to create, edit, and run your own panels of experts.</p>
@@ -850,24 +629,11 @@ export default function HomePage() {
           <form className="auth-form" onSubmit={handleAuthFormSubmit}>
             <label>
               Email
-              <input
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                type="email"
-                autoComplete="email"
-                required
-              />
+              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" required/>
             </label>
             <label>
               Password
-              <input
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                type="password"
-                autoComplete="current-password"
-                minLength={8}
-                required
-              />
+              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" minLength={8} required/>
             </label>
             <div className="auth-actions">
               <button type="button" onClick={() => void submitAuth("register")} disabled={isBusy}>
@@ -879,22 +645,16 @@ export default function HomePage() {
             </div>
           </form>
           <div className="password-reset-toggle-row">
-            <button
-              type="button"
-              className="button-link secondary-button"
-              onClick={() => {
+            <button type="button" className="button-link secondary-button" onClick={() => {
                 setIsPasswordResetOpen((current) => !current);
                 setForgotPasswordEmail((current) => current || email);
                 setStatusMessage("");
                 setErrorMessage("");
-              }}
-              disabled={isBusy}
-            >
+            }} disabled={isBusy}>
               {isPasswordResetOpen ? "Hide Password Reset" : "Forgot Password?"}
             </button>
           </div>
-          {isPasswordResetOpen ? (
-            <div className="password-reset-shell">
+          {isPasswordResetOpen ? (<div className="password-reset-shell">
               <form className="password-reset-form" onSubmit={(event) => void handleRequestPasswordReset(event)}>
                 <div className="section-copy compact-copy">
                   <h3>Request Reset Link</h3>
@@ -902,23 +662,15 @@ export default function HomePage() {
                 </div>
                 <label>
                   Account Email
-                  <input
-                    value={forgotPasswordEmail}
-                    onChange={(event) => setForgotPasswordEmail(event.target.value)}
-                    type="email"
-                    autoComplete="email"
-                    required
-                  />
+                  <input value={forgotPasswordEmail} onChange={(event) => setForgotPasswordEmail(event.target.value)} type="email" autoComplete="email" required/>
                 </label>
                 <button type="submit" disabled={isBusy}>
                   Send Reset Link
                 </button>
-                {developmentResetUrl ? (
-                  <div className="password-reset-dev-note">
+                {developmentResetUrl ? (<div className="password-reset-dev-note">
                     <p>Local development reset link:</p>
                     <code>{developmentResetUrl}</code>
-                  </div>
-                ) : null}
+                  </div>) : null}
               </form>
 
               <form className="password-reset-form" onSubmit={(event) => void handleResetPassword(event)}>
@@ -928,152 +680,79 @@ export default function HomePage() {
                 </div>
                 <label>
                   Reset Token
-                  <input
-                    value={resetToken}
-                    onChange={(event) => setResetToken(event.target.value)}
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    required
-                  />
+                  <input value={resetToken} onChange={(event) => setResetToken(event.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} required/>
                 </label>
                 <label>
                   New Password
-                  <input
-                    value={resetPasswordValue}
-                    onChange={(event) => setResetPasswordValue(event.target.value)}
-                    type="password"
-                    autoComplete="new-password"
-                    minLength={8}
-                    required
-                  />
+                  <input value={resetPasswordValue} onChange={(event) => setResetPasswordValue(event.target.value)} type="password" autoComplete="new-password" minLength={8} required/>
                 </label>
                 <label>
                   Confirm New Password
-                  <input
-                    value={resetPasswordConfirm}
-                    onChange={(event) => setResetPasswordConfirm(event.target.value)}
-                    type="password"
-                    autoComplete="new-password"
-                    minLength={8}
-                    required
-                  />
+                  <input value={resetPasswordConfirm} onChange={(event) => setResetPasswordConfirm(event.target.value)} type="password" autoComplete="new-password" minLength={8} required/>
                 </label>
                 <div className="auth-actions">
                   <button type="submit" disabled={isBusy}>
                     Reset Password
                   </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => {
-                      resetPasswordResetForm();
-                      setIsPasswordResetOpen(false);
-                      setStatusMessage("");
-                      setErrorMessage("");
-                    }}
-                    disabled={isBusy}
-                  >
+                  <button type="button" className="secondary-button" onClick={() => {
+                    resetPasswordResetForm();
+                    setIsPasswordResetOpen(false);
+                    setStatusMessage("");
+                    setErrorMessage("");
+                }} disabled={isBusy}>
                     Cancel
                   </button>
                 </div>
               </form>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
+            </div>) : null}
+        </section>) : null}
 
-      {auth ? (
-        <section className="dashboard-shell">
+      {auth ? (<section className="dashboard-shell">
           <div className="dashboard-actions">
-            <button
-              type="button"
-              className="create-panel-toggle"
-              onClick={handleToggleCreatePanel}
-              disabled={isBusy}
-            >
+            <button type="button" className="create-panel-toggle" onClick={handleToggleCreatePanel} disabled={isBusy}>
               {isCreatePanelOpen ? "Close Panel Creator" : "Create Panel"}
             </button>
           </div>
 
-          {isCreatePanelOpen ? (
-            <form className="card panel-form create-panel-form" onSubmit={(event) => void handleCreatePanel(event)}>
+          {isCreatePanelOpen ? (<form className="card panel-form create-panel-form" onSubmit={(event) => void handleCreatePanel(event)}>
               <div className="section-copy">
                 <h2>Create Panel</h2>
                 <p>Define the panel, then add the experts who will make it useful.</p>
               </div>
               <label>
                 Name
-                <input
-                  value={newPanelName}
-                  onChange={(event) => setNewPanelName(event.target.value)}
-                  maxLength={255}
-                  required
-                />
+                <input value={newPanelName} onChange={(event) => setNewPanelName(event.target.value)} maxLength={255} required/>
               </label>
               <label>
                 Description
-                <input
-                  value={newPanelDescription}
-                  onChange={(event) => setNewPanelDescription(event.target.value)}
-                  maxLength={255}
-                />
+                <input value={newPanelDescription} onChange={(event) => setNewPanelDescription(event.target.value)} maxLength={255}/>
               </label>
               <label>
                 Instructions
-                <textarea
-                  value={newPanelInstructions}
-                  onChange={(event) => setNewPanelInstructions(event.target.value)}
-                  rows={3}
-                />
+                <textarea value={newPanelInstructions} onChange={(event) => setNewPanelInstructions(event.target.value)} rows={3}/>
               </label>
 
               <div className="section-copy compact-copy">
                 <h3>Experts</h3>
               </div>
-              {expertDrafts.map((expert, index) => (
-                <fieldset key={expert.id}>
+              {expertDrafts.map((expert, index) => (<fieldset key={expert.id}>
                   <legend>Expert {index + 1}</legend>
                   <label>
                     Name
-                    <input
-                      value={expert.name}
-                      onChange={(event) =>
-                        handleExpertDraftChange(index, "name", event.target.value)
-                      }
-                      maxLength={255}
-                      required
-                    />
+                    <input value={expert.name} onChange={(event) => handleExpertDraftChange(index, "name", event.target.value)} maxLength={255} required/>
                   </label>
                   <label>
                     Specialization
-                    <input
-                      value={expert.specialization}
-                      onChange={(event) =>
-                        handleExpertDraftChange(index, "specialization", event.target.value)
-                      }
-                      maxLength={255}
-                      required
-                    />
+                    <input value={expert.specialization} onChange={(event) => handleExpertDraftChange(index, "specialization", event.target.value)} maxLength={255} required/>
                   </label>
                   <label>
                     Personality
-                    <input
-                      value={expert.soul}
-                      onChange={(event) =>
-                        handleExpertDraftChange(index, "soul", event.target.value)
-                      }
-                    />
+                    <input value={expert.soul} onChange={(event) => handleExpertDraftChange(index, "soul", event.target.value)}/>
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => removeExpertDraft(index)}
-                    disabled={expertDrafts.length <= 1 || isBusy}
-                  >
+                  <button type="button" onClick={() => removeExpertDraft(index)} disabled={expertDrafts.length <= 1 || isBusy}>
                     Remove Expert
                   </button>
-                </fieldset>
-              ))}
+                </fieldset>))}
               <div className="action-row">
                 <button type="button" onClick={addExpertDraft} disabled={isBusy}>
                   Add Expert
@@ -1082,43 +761,26 @@ export default function HomePage() {
                   Create Panel
                 </button>
               </div>
-            </form>
-          ) : null}
+            </form>) : null}
 
           <div className="panel-stack">
-            {panels.length === 0 ? (
-              <article className="card panel-card empty-card">
+            {panels.length === 0 ? (<article className="card panel-card empty-card">
                 <div className="section-copy">
                   <h2>No Panels Yet</h2>
                   <p>Create your first panel to start building conversations.</p>
                 </div>
-              </article>
-            ) : null}
+              </article>) : null}
 
             {panels.map((panel) => {
-              const isEditing = activePanel?.id === panel.id;
-
-              return (
-                <article
-                  key={panel.id}
-                  className={`card panel-card panel-card-interactive ${isEditing ? "panel-card-editing" : ""}`}
-                >
+                const isEditing = activePanel?.id === panel.id;
+                return (<article key={panel.id} className={`card panel-card panel-card-interactive ${isEditing ? "panel-card-editing" : ""}`}>
                   <div className="panel-card-controls">
-                    <button
-                      type="button"
-                      onClick={() => void handleSelectPanel(panel.id)}
-                      disabled={isBusy}
-                    >
+                    <button type="button" onClick={() => void handleSelectPanel(panel.id)} disabled={isBusy}>
                       {isEditing ? "Close Editor" : "Edit Panel"}
                     </button>
                   </div>
 
-                  <button
-                    type="button"
-                    className="panel-card-launch"
-                    onClick={() => router.push(`/chat?panelId=${panel.id}`)}
-                    disabled={isBusy}
-                  >
+                  <button type="button" className="panel-card-launch" onClick={() => router.push(`/chat?panelId=${panel.id}`)} disabled={isBusy}>
                     <div className="panel-card-center">
                       <h2>{panel.name}</h2>
                     </div>
@@ -1130,47 +792,28 @@ export default function HomePage() {
                     <div className="expert-block">
                       <p className="expert-heading">Experts:</p>
                       <ul className="expert-summary-list">
-                        {panel.experts.map((expert) => (
-                          <li key={expert.id}>
+                        {panel.experts.map((expert) => (<li key={expert.id}>
                             {expert.name} - {expert.specialization}
-                          </li>
-                        ))}
+                          </li>))}
                       </ul>
                     </div>
                   </button>
 
-                  {isEditing ? (
-                    <form
-                      className="panel-form edit-panel-form"
-                      onSubmit={(event) => void handleUpdateActivePanel(event)}
-                    >
+                  {isEditing ? (<form className="panel-form edit-panel-form" onSubmit={(event) => void handleUpdateActivePanel(event)}>
                       <div className="section-copy compact-copy">
                         <h3>Edit Panel</h3>
                       </div>
                       <label>
                         Name
-                        <input
-                          value={editPanelName}
-                          onChange={(event) => setEditPanelName(event.target.value)}
-                          maxLength={255}
-                          required
-                        />
+                        <input value={editPanelName} onChange={(event) => setEditPanelName(event.target.value)} maxLength={255} required/>
                       </label>
                       <label>
                         Description
-                        <input
-                          value={editPanelDescription}
-                          onChange={(event) => setEditPanelDescription(event.target.value)}
-                          maxLength={255}
-                        />
+                        <input value={editPanelDescription} onChange={(event) => setEditPanelDescription(event.target.value)} maxLength={255}/>
                       </label>
                       <label>
                         Instructions
-                        <textarea
-                          value={editPanelInstructions}
-                          onChange={(event) => setEditPanelInstructions(event.target.value)}
-                          rows={3}
-                        />
+                        <textarea value={editPanelInstructions} onChange={(event) => setEditPanelInstructions(event.target.value)} rows={3}/>
                       </label>
                       <div className="section-copy compact-copy">
                         <h3>Experts</h3>
@@ -1179,53 +822,24 @@ export default function HomePage() {
                           blocked to preserve conversation history.
                         </p>
                       </div>
-                      {editExpertDrafts.map((expert, index) => (
-                        <fieldset key={expert.id}>
+                      {editExpertDrafts.map((expert, index) => (<fieldset key={expert.id}>
                           <legend>Expert {index + 1}</legend>
                           <label>
                             Name
-                            <input
-                              value={expert.name}
-                              onChange={(event) =>
-                                handleEditExpertDraftChange(index, "name", event.target.value)
-                              }
-                              maxLength={255}
-                              required
-                            />
+                            <input value={expert.name} onChange={(event) => handleEditExpertDraftChange(index, "name", event.target.value)} maxLength={255} required/>
                           </label>
                           <label>
                             Specialization
-                            <input
-                              value={expert.specialization}
-                              onChange={(event) =>
-                                handleEditExpertDraftChange(
-                                  index,
-                                  "specialization",
-                                  event.target.value
-                                )
-                              }
-                              maxLength={255}
-                              required
-                            />
+                            <input value={expert.specialization} onChange={(event) => handleEditExpertDraftChange(index, "specialization", event.target.value)} maxLength={255} required/>
                           </label>
                           <label>
                             Personality
-                            <input
-                              value={expert.soul}
-                              onChange={(event) =>
-                                handleEditExpertDraftChange(index, "soul", event.target.value)
-                              }
-                            />
+                            <input value={expert.soul} onChange={(event) => handleEditExpertDraftChange(index, "soul", event.target.value)}/>
                           </label>
-                          <button
-                            type="button"
-                            onClick={() => removeEditExpertDraft(index)}
-                            disabled={editExpertDrafts.length <= 1 || isBusy}
-                          >
+                          <button type="button" onClick={() => removeEditExpertDraft(index)} disabled={editExpertDrafts.length <= 1 || isBusy}>
                             Remove Expert
                           </button>
-                        </fieldset>
-                      ))}
+                        </fieldset>))}
                       <div className="action-row">
                         <button type="button" onClick={addEditExpertDraft} disabled={isBusy}>
                           Add Expert
@@ -1233,23 +847,15 @@ export default function HomePage() {
                         <button type="submit" disabled={isBusy}>
                           Save Panel Changes
                         </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          onClick={() => void handleDeleteActivePanel()}
-                          disabled={isBusy}
-                        >
+                        <button type="button" className="danger" onClick={() => void handleDeleteActivePanel()} disabled={isBusy}>
                           Delete Panel
                         </button>
                       </div>
-                    </form>
-                  ) : null}
-                </article>
-              );
+                    </form>) : null}
+                </article>);
             })}
           </div>
-        </section>
-      ) : null}
+        </section>) : null}
 
       <style jsx>{`
         .page {
@@ -1413,6 +1019,41 @@ export default function HomePage() {
         .password-reset-dev-note code {
           overflow-wrap: anywhere;
           font-size: 0.82rem;
+        }
+
+        .modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 20;
+          background: rgba(15, 23, 42, 0.48);
+          display: grid;
+          place-items: center;
+          padding: 18px;
+        }
+
+        .modal-card {
+          width: min(100%, 460px);
+          background: var(--card-bg);
+          border: 1px solid var(--card-border);
+          border-radius: 16px;
+          padding: 18px;
+          display: grid;
+          gap: 14px;
+          backdrop-filter: blur(10px);
+          box-shadow: 0 24px 52px -30px rgba(15, 23, 42, 0.7);
+        }
+
+        .modal-form {
+          padding: 0;
+          border: none;
+          background: transparent;
+        }
+
+        .modal-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          flex-wrap: wrap;
         }
 
         .auth-card,
@@ -1726,6 +1367,5 @@ export default function HomePage() {
           }
         }
       `}</style>
-    </main>
-  );
+    </main>);
 }
